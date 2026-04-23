@@ -23,10 +23,12 @@ var e = (e) => {
 	}
 	async CameraInit() {
 		let e = this.objectManager.createGameObject("camera");
-		if (e) {
-			let t = await e.addComponent("Camera").getStream(), n = document.getElementById("ui-gate")?.contentWindow?.document.getElementById("camera-preview");
-			n && t && (console.log("📺 Found video element inside iframe, setting stream."), n.srcObject = t);
-		}
+		if (!e) return;
+		let t = await e.addComponent("Camera").getStream(), n = () => {
+			let e = document.getElementById("ui-gate")?.contentWindow?.document.getElementById("camera-preview");
+			e && t ? (console.log("📺 Found video element inside iframe, setting stream."), e.srcObject = t, e.play().catch((e) => console.warn("Video play failed:", e))) : setTimeout(n, 100);
+		};
+		n();
 	}
 	update = (e) => {
 		if (this.webRTC) {

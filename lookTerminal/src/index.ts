@@ -53,21 +53,30 @@ export class WebTerminal {
         }
     }
 
-    private async CameraInit(){
+    private async CameraInit() {
         const cameraObject = this.objectManager.createGameObject("camera");
-        if (cameraObject) {
-            const cameraComponent = cameraObject.addComponent<Camera>("Camera");
-            
-            // HTMLのvideo要素にストリームをセットして、0レイテンシ表示を確認
-            const stream = await cameraComponent.getStream(); 
-            const videoEl = (document.getElementById('ui-gate') as HTMLIFrameElement)
-                ?.contentWindow?.document.getElementById('camera-preview') as HTMLVideoElement;
+        if (!cameraObject) return;
+
+        const cameraComponent = cameraObject.addComponent<Camera>("Camera");
+        const stream = await cameraComponent.getStream();
+
+        // 要素が見つかるまで少し待機するか、update内でチェックするロジックに変更
+        const injectStream = () => {
+            const uiGate = document.getElementById('ui-gate') as HTMLIFrameElement;
+            const videoEl = uiGate?.contentWindow?.document.getElementById('camera-preview') as HTMLVideoElement;
 
             if (videoEl && stream) {
                 console.log("📺 Found video element inside iframe, setting stream.");
                 videoEl.srcObject = stream;
+                // 念のため再生命令
+                videoEl.play().catch(e => console.warn("Video play failed:", e));
+            } else {
+                // まだiframe内がロードされていない場合は100ms後に再試行
+                setTimeout(injectStream, 100);
             }
-        }
+        };
+
+        injectStream();
     }
 
     /**
