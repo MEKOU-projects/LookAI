@@ -27,7 +27,7 @@ var e = (e) => {
 		let t = await e.addComponent("Camera").getStream();
 		if (t) {
 			let e = document.getElementById("camera-preview");
-			e && (console.log("📺 Setting stream to MAIN window video element."), e.srcObject = t, e.play().catch((e) => console.warn("Main video play failed:", e)));
+			e ? (console.log("📺 Setting stream to MAIN window video element."), e.srcObject = t, e.play().catch((e) => console.warn("Main video play failed:", e))) : console.warn("❌ Main video element '#camera-preview' not found.");
 		}
 	}
 	update = (e) => {
