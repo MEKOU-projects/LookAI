@@ -1,0 +1,47 @@
+<!DOCTYPE HTML>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Fruit Catch Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* 重要: 背景を透明にして後ろのエンジンを見せる */
+        body, html {
+            background: transparent !important;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        #ui-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            color: #fff;
+            text-shadow: 2px 2px 4px #000;
+            pointer-events: none; /* UIの隙間はクリックを通す */
+        }
+
+        .hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: auto; /* ボタンやスコア等はクリック可能にする */
+        }
+    </style>
+</head>
+<body>
+    <video id="camera-preview" autoplay playsinline muted 
+        style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1;">
+    </video>
+    <div id="ui-container">
+        <div class="hud">
+            <h1>Fruit Catch</h1>
+            <div id="score">Score: 0</div>
+        </div>
+    </div>
+</body>
+</html>
