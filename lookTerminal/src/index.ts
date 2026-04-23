@@ -60,23 +60,17 @@ export class WebTerminal {
         const cameraComponent = cameraObject.addComponent<Camera>("Camera");
         const stream = await cameraComponent.getStream();
 
-        // 要素が見つかるまで少し待機するか、update内でチェックするロジックに変更
-        const injectStream = () => {
-            const uiGate = document.getElementById('ui-gate') as HTMLIFrameElement;
-            const videoEl = uiGate?.contentWindow?.document.getElementById('camera-preview') as HTMLVideoElement;
+        if (stream) {
+            // 親ウィンドウ（index.html）にある video#camera-preview を取得
+            // 外部JSとしてロードされていても document は親のものを指すためこれでOK
+            const mainVideoEl = document.getElementById('camera-preview') as HTMLVideoElement;
 
-            if (videoEl && stream) {
-                console.log("📺 Found video element inside iframe, setting stream.");
-                videoEl.srcObject = stream;
-                // 念のため再生命令
-                videoEl.play().catch(e => console.warn("Video play failed:", e));
-            } else {
-                // まだiframe内がロードされていない場合は100ms後に再試行
-                setTimeout(injectStream, 100);
+            if (mainVideoEl) {
+                console.log("📺 Setting stream to MAIN window video element.");
+                mainVideoEl.srcObject = stream;
+                mainVideoEl.play().catch(e => console.warn("Main video play failed:", e));
             }
-        };
-
-        injectStream();
+        }
     }
 
     /**
