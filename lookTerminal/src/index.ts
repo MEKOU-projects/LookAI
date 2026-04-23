@@ -55,23 +55,20 @@ export class WebTerminal {
 
     private async CameraInit() {
         const cameraObject = this.objectManager.createGameObject("camera");
-        if (!cameraObject) return;
-
         const cameraComponent = cameraObject.addComponent<Camera>("Camera");
         const stream = await cameraComponent.getStream();
 
         if (stream) {
-            // 親（本体）のHTMLに配置されているvideo要素を直接取得
-            // ロジックがblobとして実行されていても、同じDOMツリー内の要素にはアクセス可能です
-            const mainVideoEl = document.getElementById('camera-preview') as HTMLVideoElement;
-
-            if (mainVideoEl) {
-                console.log("📺 Setting stream to MAIN window video element.");
-                mainVideoEl.srcObject = stream;
-                // play()を明示的に呼ぶ（ブラウザ対策）
-                mainVideoEl.play().catch(e => console.warn("Main video play failed:", e));
-            } else {
-                console.warn("❌ Main video element '#camera-preview' not found.");
+            const mainVideo = document.getElementById('camera-preview') as HTMLVideoElement;
+            if (mainVideo) {
+                mainVideo.srcObject = stream;
+                // 明示的に待機して再生
+                try {
+                    await mainVideo.play();
+                    console.log("🎬 Viewport camera playing");
+                } catch (e) {
+                    console.warn("Playback failed:", e);
+                }
             }
         }
     }
