@@ -6,6 +6,8 @@ import {
     Transform,
 } from '@mekou/engine-api';
 
+import { MagiTerminal } from './magiSystem';
+
 
 export const initGame = (objectManager: IObjectManager) => {
     console.log("📦 Received objectManager:", objectManager);
@@ -23,8 +25,10 @@ export const initGame = (objectManager: IObjectManager) => {
 export class WebTerminal {
     private objectManager: IObjectManager;
     private webRTC: WebRTC | null = null;
+    private magi: MagiTerminal | null = null;
 
     constructor(objectManager: IObjectManager) {
+        this.magi = new MagiTerminal();
         this.objectManager = objectManager;
         if(this.objectManager && typeof this.objectManager.createGameObject === 'function') {
             console.log("object_manager...is valid:");

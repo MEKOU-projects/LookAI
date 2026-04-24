@@ -1,17 +1,73 @@
-//#region src/index.ts
-var e = (e) => {
+//#region src/magiSystem.ts
+var e = class {
+	syncValue = 44.1;
+	canvas = null;
+	ctx = null;
+	animationId = 0;
+	constructor() {
+		this.initCanvas(), this.startAnimation();
+	}
+	initCanvas() {
+		this.canvas = document.querySelector("#sync-canvas"), this.canvas && (this.ctx = this.canvas.getContext("2d"), window.addEventListener("resize", () => this.updateCanvasSize()), this.updateCanvasSize());
+	}
+	updateCanvasSize() {
+		this.canvas && (this.canvas.width = this.canvas.offsetWidth, this.canvas.height = this.canvas.offsetHeight);
+	}
+	startAnimation() {
+		let e = () => {
+			if (!this.ctx || !this.canvas) return;
+			let { width: t, height: n } = this.canvas;
+			this.ctx.clearRect(0, 0, t, n);
+			let r = Date.now() * .002, i = [
+				"#ff0000",
+				"#00ff00",
+				"#0088ff"
+			], a = Math.max(0, (100 - this.syncValue) / 100);
+			i.forEach((e, i) => {
+				this.ctx.beginPath(), this.ctx.strokeStyle = e, this.ctx.lineWidth = 2, this.ctx.globalCompositeOperation = "screen";
+				for (let e = 0; e < t; e++) {
+					let t = i * a * 2, o = 20 + a * 30, s = n / 2 + Math.sin(e * .02 + r + t) * o * Math.sin(r * .5);
+					e === 0 ? this.ctx.moveTo(e, s) : this.ctx.lineTo(e, s);
+				}
+				this.ctx.stroke();
+			}), this.animationId = requestAnimationFrame(e);
+		};
+		e();
+	}
+	updateConnectionTree(e) {
+		let t = document.querySelector("#top-interface div:last-child");
+		t && (t.innerHTML = e.map((e) => `
+            <span style="margin-right: 20px;">
+                <b style="color: var(--nerv-orange);">${e.name.toUpperCase()}</b>: 
+                [${e.components.join(", ")}]
+            </span>
+        `).join(""));
+	}
+	postPriorityLog(e, t = !1) {
+		let n = document.querySelector(".log-container");
+		if (!n) return;
+		let r = document.createElement("div");
+		r.className = `log-entry ${t ? "critical" : ""}`, r.textContent = `> ${(/* @__PURE__ */ new Date()).toLocaleTimeString()} : ${e}`, n.prepend(r), n.childNodes.length > 8 && n.lastChild?.remove();
+	}
+	setSyncRatio(e) {
+		this.syncValue = e;
+		let t = document.querySelector("#left-sync div div");
+		t && (t.textContent = `${e.toFixed(1)}%`, t.parentElement.style.color = e > 80 ? "#fff" : "var(--nerv-orange)");
+	}
+}, t = (e) => {
 	console.log("📦 Received objectManager:", e);
 	try {
-		let n = new t(e);
-		return console.log("✅ [initGame] Instance created:", n), n;
+		let t = new n(e);
+		return console.log("✅ [initGame] Instance created:", t), t;
 	} catch (e) {
 		throw console.error("❌ [initGame] CRASH during construction:", e), e;
 	}
-}, t = class {
+}, n = class {
 	objectManager;
 	webRTC = null;
-	constructor(e) {
-		this.objectManager = e, this.objectManager && typeof this.objectManager.createGameObject == "function" && console.log("object_manager...is valid:"), this.initializeWebRTC(), this.CameraInit();
+	magi = null;
+	constructor(t) {
+		this.magi = new e(), this.objectManager = t, this.objectManager && typeof this.objectManager.createGameObject == "function" && console.log("object_manager...is valid:"), this.initializeWebRTC(), this.CameraInit();
 	}
 	async initializeWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
@@ -57,4 +113,4 @@ var e = (e) => {
 	}
 };
 //#endregion
-export { t as WebTerminal, e as initGame };
+export { n as WebTerminal, t as initGame };
