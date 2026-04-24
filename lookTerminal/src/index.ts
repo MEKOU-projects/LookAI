@@ -3,6 +3,7 @@ import {
     IGameObject,
     WebRTC,
     Camera,
+    Transform,
 } from '@mekou/engine-api';
 
 
@@ -101,7 +102,42 @@ export class WebTerminal {
         }
     }
 
-    private handleData(data: any) {
+        private handleData(data: any) {
+            // Rust側で type: "detection" として送っている前提
+            if (data.type === "detection") {
+                // payload: "DETECTED:{\"label\": \"cat\", ...}" をパース
+                const rawJson = data.payload.replace("DETECTED:", "");
+                const detection = JSON.parse(rawJson);
 
-    }
+                const { label, entity_id, bbox } = detection;
+
+                // 1. すでに存在する個体か確認
+                let obj = this.objectManager.findGameObject(entity_id);
+
+                if (!obj) {
+                    // 2. 新規個体なら実体化（ここが createGameObject）
+                    obj = this.objectManager.createGameObject(entity_id);
+                    console.log(`🎯 Entity Synchronized: ${label} [${entity_id}]`);
+                    
+                    // 必要なら識別用のコンポーネントを付ける
+                    // obj.addComponent("Tag").setLabel(label);
+                }
+
+                // 3. 位置の同期 (bbox: [x, y, w, h])
+                // YOLOのピクセル座標を正規化してTransformにセット
+                // ※とりあえず Z=-2 (目の前) で X, Y を画面比率に合わせる
+                const x = (bbox[0] / 640) * 2 - 1; // -1.0 ~ 1.0 に変換
+                const y = -((bbox[1] / 480) * 2 - 1); 
+                
+                const transform = obj.getComponent<Transform>("Transform");
+                if (transform && transform.position) {
+                    // 値をセット
+                    if (transform && transform.position) {
+                        transform.position.x = x;
+                        transform.position.y = y;   
+                        transform.position.z = -2.0;
+                    }
+                }
+            }
+        }
 }

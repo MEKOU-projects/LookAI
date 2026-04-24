@@ -22,12 +22,17 @@ var e = (e) => {
 		}
 	}
 	async CameraInit() {
-		let e = this.objectManager.createGameObject("camera");
-		if (!e) return;
-		let t = await e.addComponent("Camera").getStream();
-		if (t) {
-			let e = document.getElementById("camera-preview");
-			e ? (console.log("📺 Setting stream to MAIN window video element."), e.srcObject = t, e.play().catch((e) => console.warn("Main video play failed:", e))) : console.warn("❌ Main video element '#camera-preview' not found.");
+		let e = await this.objectManager.createGameObject("camera").addComponent("Camera").getStream();
+		if (e) {
+			let t = document.getElementById("camera-preview");
+			if (t) {
+				t.srcObject = e;
+				try {
+					await t.play(), console.log("🎬 Viewport camera playing");
+				} catch (e) {
+					console.warn("Playback failed:", e);
+				}
+			}
 		}
 	}
 	update = (e) => {
@@ -42,7 +47,14 @@ var e = (e) => {
 			}
 		}
 	};
-	handleData(e) {}
+	handleData(e) {
+		if (e.type === "detection") {
+			let t = e.payload.replace("DETECTED:", ""), { label: n, entity_id: r, bbox: i } = JSON.parse(t), a = this.objectManager.findGameObject(r);
+			a || (a = this.objectManager.createGameObject(r), console.log(`🎯 Entity Synchronized: ${n} [${r}]`));
+			let o = i[0] / 640 * 2 - 1, s = -(i[1] / 480 * 2 - 1), c = a.getComponent("Transform");
+			c && c.position && c && c.position && (c.position.x = o, c.position.y = s, c.position.z = -2);
+		}
+	}
 };
 //#endregion
 export { t as WebTerminal, e as initGame };

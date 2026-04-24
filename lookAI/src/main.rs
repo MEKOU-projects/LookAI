@@ -1,7 +1,11 @@
 use tokio;
 use std::sync::Arc;
+use tokio::process::Command;
+use std::process::Stdio;
+use tokio::io::{AsyncWriteExt, AsyncBufReadExt, BufReader};
+use tokio::sync::mpsc;
 
-mod web_rtc; 
+mod web_rtc;
 mod slam;
 mod signal_server;
 mod video_decoder;
@@ -9,14 +13,11 @@ mod video_decoder;
 use crate::web_rtc::WebRtc;
 use crate::slam::Slam;
 use crate::signal_server::SignalServer;
-use crate::video_decoder::VideoFrameReconstructor;
-
-use std::io::Write;
+//use crate::video_decoder::VideoFrameReconstructor;
 
 struct LookAI {
     rtc: Arc<WebRtc>,
     slam: Slam,
-    reconstructor: VideoFrameReconstructor,
 }
 
 impl LookAI {
@@ -24,66 +25,73 @@ impl LookAI {
         Self {
             rtc,
             slam: Slam::new(),
-            reconstructor: VideoFrameReconstructor::new(),
         }
     }
 
     async fn start(&mut self) {
-        // Rust側が「サーバー」として待ち受けるのか、
-        // それとも外部のシグナリングサーバーに「クライアント」として繋ぎに行くのか
-        // 今のモバイルのコードに合わせるなら「自前のSignalServer」に繋ぎに行く形
-        let signaling_url = "ws://127.0.0.1:3001/ws";
-        let rtc_clone = Arc::clone(&self.rtc);
-        
-        // WebSocketの受信ループを開始
+        // ★ web_rtc.run() spawn を削除
+        // バイナリの流れ: スマホ → signal_server → frame_tx → receive_frame → YOLO
+        // signal_server が frame_tx に直接 push しているので web_rtc.run() は不要・競合の原因
+
+        let current_dir = std::env::current_dir().expect("Failed to get current dir");
+        let python_exe = if cfg!(windows) {
+            current_dir.join(".venv").join("Scripts").join("python.exe")
+        } else {
+            current_dir.join(".venv").join("bin").join("python")
+        };
+
+        let mut child = Command::new(python_exe)
+            .arg("YOLO.py")
+            .current_dir(std::env::current_dir().unwrap()) // 実行ディレクトリを固定
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("Failed to start YOLO.py. Did you create .venv?");
+
+        // ★ stdin.take() は必ず1回だけ
+        let mut py_stdin = child.stdin.take().expect("Failed to open stdin");
+        let py_stdout = child.stdout.take().expect("Failed to open stdout");
+
+        // YOLO結果の受信 → RTCでスマホへ送り返す
+        let rtc_for_result: Arc<WebRtc> = Arc::clone(&self.rtc);
         tokio::spawn(async move {
-            if let Err(e) = rtc_clone.run(signaling_url).await {
-                eprintln!("❌ WS Bridge Error: {:?}", e);
+            let mut reader = BufReader::new(py_stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                if line.starts_with("DETECTED:") {
+                    println!("🎯 YOLO {}", line);
+                    // YOLO検出結果をスマホへ送り返す
+                    if let Err(e) = rtc_for_result.send_result(line).await {
+                        eprintln!("❌ Failed to send YOLO result: {:?}", e);
+                    }
+                }
             }
         });
 
-        println!("🚀 LookAI Loop Started. Waiting for binary chunks via WS...");
-        
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open("debug_stream.h264")
-            .unwrap();
-
-        let mut packet_count = 0;
+        println!("🚀 LookAI Loop Started. Waiting for frames...");
 
         loop {
-            // WebRtc(内部はWS)からバイナリを取得
             if let Some(packet) = self.rtc.receive_frame().await {
-                if packet_count == 0 {
-                    println!("📝 First binary chunk: {:02x?}", &packet[..std::cmp::min(16, packet.len())]);
-                }
+                // JPEGの開始符号(FF D8)をチェック
+                if packet.len() > 2 && packet[0] == 0xFF && packet[1] == 0xD8 {
+                    println!("📸 Valid JPEG Frame: {} bytes", packet.len());
 
-                // そのままファイルに書き込み（デバッグ用）
-                file.write_all(&packet).unwrap();
-                
-                if packet_count % 30 == 0 {
-                    file.flush().unwrap();
-                    println!("📥 Buffered {} chunks...", packet_count);
-                }
-                
-                packet_count += 1;
+                    // ★まずはファイルに書き出して証拠を掴む
+                    let _ = std::fs::write("capture_test.jpg", &packet);
 
-                // 本来の解析フロー：WS経由ならRTPヘッダーがないので、
-                // push_rtp ではなく push_binary などの直接入力メソッドが必要になるかもしれません
-                if let Some(complete_frame) = self.reconstructor.push_binary(&packet) {
-                    // SLAMの処理
-                    let result = self.slam.update(&complete_frame);
-                    
-                    // SLAMの結果（座標など）をスマホに送り返す
-                    let rtc_clone = Arc::clone(&self.rtc);
-                    tokio::spawn(async move {
-                        let _ = rtc_clone.send_slam_data(result).await;
-                    });
+                    // ★Python(YOLO)にバイナリをそのまま叩き込む
+                    // JPEGならPython側の cv2.imdecode でそのまま読めるのでこれでOK
+                    if let Err(e) = py_stdin.write_all(&packet).await {
+                        eprintln!("❌ Pipe to Python failed: {:?}", e);
+                        break;
+                    }
+                    let _ = py_stdin.flush().await;
+
+                } else {
+                    // JPEGじゃないゴミデータが来た場合
+                    println!("📦 Unknown binary received: {} bytes", packet.len());
                 }
             }
-            // CPU負荷を抑えつつ高速に回す
             tokio::task::yield_now().await;
         }
     }
@@ -93,20 +101,16 @@ impl LookAI {
 async fn main() {
     println!("🛰️ Starting LookAI MEKOU Engine...");
 
-    // 1. 通信の核となる WebRtc (実体は WS Bridge) を作成
     let look_ai_core = Arc::new(WebRtc::new());
 
-    // 2. シグナリングサーバーを起動 (スマホとRustの仲介役)
     let server_core = Arc::clone(&look_ai_core);
     tokio::spawn(async move {
         let server = Arc::new(SignalServer::new(server_core));
         server.start(3001).await;
     });
 
-    // サーバーの起動を少し待機
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // 3. メインロジック LookAI を起動
     let mut look_ai = LookAI::new(Arc::clone(&look_ai_core)).await;
     look_ai.start().await;
 }

@@ -3,37 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <style>
-        :root { background-color: transparent !important; }
+        :root {
+            --nerv-orange: #ff9d00;
+            --nerv-red: #ff0000;
+            --nerv-yellow: #fad333;
+            --bg-dim: rgba(20, 20, 20, 0.7);
+        }
+
         html, body {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
             background: transparent !important;
-            background-color: rgba(0, 0, 0, 0) !important;
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
+            color: #fff;
+            font-family: 'Share Tech Mono', monospace; /* デジタル感のあるフォント推奨 */
             overflow: hidden;
         }
+
         #ui-container {
-            /* コンテナ自体も背景を持たないように */
-            background: transparent !important;
-            width: 100%;
-            height: 100%;
-            color: #fff;
+            display: grid;
+            grid-template-columns: 250px 1fr 250px;
+            grid-template-rows: 100px 1fr 150px;
+            width: 100vw; height: 100vh;
+            gap: 10px;
+            padding: 10px;
+            box-sizing: border-box;
             pointer-events: none;
         }
-        .hud {
-            position: absolute;
-            top: 20px; left: 20px;
-            pointer-events: auto; /* ボタンなどはクリック可能 */
+
+        /* --- エヴァ風パネル基底 --- */
+        .nerv-panel {
+            background: var(--bg-dim);
+            border: 1px solid var(--nerv-orange);
+            position: relative;
+            pointer-events: auto;
+            backdrop-filter: blur(4px);
+        }
+
+        /* スラッシュ模様（上部・または端に配置） */
+        .slash-bar {
+            height: 8px;
+            width: 100%;
+            background: repeating-linear-gradient(-45deg, 
+                #000 0 4px, 
+                var(--nerv-orange) 4px 8px
+            );
+        }
+
+        .slash-bar.warning { background: repeating-linear-gradient(-45deg, #000 0 4px, var(--nerv-yellow) 4px 8px); }
+        .slash-bar.critical { background: repeating-linear-gradient(-45deg, #000 0 4px, var(--nerv-red) 4px 8px); }
+
+        /* --- 各エリアの定義 --- */
+
+        /* 上：Interface階層 */
+        #top-interface {
+            grid-column: 1 / 4;
+            grid-row: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 左：シンクロ率 (Sync Wave) */
+        #left-sync {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            border-left: 4px solid var(--nerv-orange);
+        }
+
+        /* 下：緊急ログ */
+        #bottom-log {
+            grid-column: 2 / 4;
+            grid-row: 3;
+            border-top: 2px solid var(--nerv-red);
+        }
+
+        .label {
+            font-size: 10px;
+            padding: 2px 5px;
+            background: var(--nerv-orange);
+            color: #000;
+            width: fit-content;
+            font-weight: bold;
+        }
+
+        canvas#sync-canvas {
+            width: 100%;
+            height: 100%;
+            opacity: 0.8;
+        }
+
+        .log-container {
+            padding: 5px;
+            font-size: 12px;
+            color: var(--nerv-red);
+            overflow-y: hidden;
+        }
+
+        .log-entry {
+            border-left: 2px solid var(--nerv-red);
+            padding-left: 5px;
+            margin-bottom: 2px;
+            animation: blink 2s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
     </style>
 </head>
 <body>
     <div id="ui-container">
-        <div class="hud">
-            <h1 style="color: red;">IOT DEBUG</h1>
-            <div id="score">Score: 0</div>
+        <div id="top-interface" class="nerv-panel">
+            <div class="slash-bar"></div>
+            <div class="label">INTERFACE CONNECTION TREE</div>
+            <div style="padding: 5px; font-size: 10px; display: flex; gap: 20px;">
+                <span>> NETWORK: OK</span>
+                <span>> WEBRTC: LINKED</span>
+                <span>> CAMERA: STREAMING</span>
+                <span style="color: gray;">> GRABBER: NONE (REJECTED)</span>
+            </div>
+        </div>
+
+        <div id="left-sync" class="nerv-panel">
+            <div class="label">SYNC RATIO</div>
+            <canvas id="sync-canvas"></canvas>
+            <div style="position: absolute; bottom: 10px; width: 100%; text-align: center;">
+                <div style="font-size: 24px; color: var(--nerv-orange);">44.1%</div>
+            </div>
+        </div>
+
+        <div id="bottom-log" class="nerv-panel">
+            <div class="slash-bar critical"></div>
+            <div class="label" style="background: var(--nerv-red);">PRIORITY LOG</div>
+            <div class="log-container">
+                <div class="log-entry">> WARNING: LLM REQUESTED INTERFACE 'HAPTIC_SENSOR' - NOT FOUND</div>
+                <div class="log-entry">> CAUTION: PREDICTION MISMATCH ON 'YOLO-DOG-2' (DIFF: 0.42)</div>
+                <div class="log-entry">> MAGI-1: AGREE / MAGI-2: AGREE / MAGI-3: DISAGREE</div>
+            </div>
         </div>
     </div>
+
+    <script type="module" src="./src/magiSystem.ts">
+    </script>
 </body>
 </html>
