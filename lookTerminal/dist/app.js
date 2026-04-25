@@ -246,7 +246,8 @@ var c = class {
 	};
 	_entityCount = 0;
 	_handleData(e) {
-		if (e.type === "detection") try {
+		console.log("Received Data:", e);
+		try {
 			let t = e.payload.replace("DETECTED:", ""), { label: n, entity_id: r, bbox: i, confidence: a } = JSON.parse(t), o = this.objectManager.findGameObject(r);
 			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n}`, "ok"));
 			let s = i[0] / 640 * 2 - 1, c = -(i[1] / 480 * 2 - 1), l = o.getComponent("Transform");

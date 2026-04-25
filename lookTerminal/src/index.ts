@@ -250,7 +250,7 @@ export class WebTerminal {
 
     private _entityCount = 0;
     private _handleData(data: any): void {
-        if (data.type !== 'detection') return;
+        console.log("Received Data:", data);
         // ... (以前の handleData ロジックを維持)
         try {
             const rawJson = data.payload.replace('DETECTED:', '');
