@@ -177,13 +177,13 @@ var e = class {
 	constructor(t) {
 		this.objectManager = t, this.magi = new e();
 		let n = () => {
-			document.getElementById("sync-canvas") ? (this.magi.boot(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING..."), console.log("✅ [WebTerminal] UI Bootstrapped.")) : (console.log("⏳ [WebTerminal] Waiting for Canvas..."), setTimeout(n, 100));
+			document.getElementById("sync-canvas") ? (this.magi.boot(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING..."), console.log("✅ [WebTerminal] UI Bootstrapped.")) : (console.log("⏳ [WebTerminal] Searching for #sync-canvas..."), setTimeout(n, 100));
 		};
 		n(), setTimeout(() => {
 			console.log("🚀 [AUTO-START] Initiating Camera..."), this._startCamera();
 		}, 2e3);
 		let r = document.getElementById("stream-start-btn");
-		r && r.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal initialized");
+		r && r.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal internal systems ready");
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");

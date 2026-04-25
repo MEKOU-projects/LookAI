@@ -33,15 +33,16 @@ export class WebTerminal {
     private _lastConfidenceSync: number | null = null;
 
 
-        constructor(objectManager: IObjectManager) {
+    constructor(objectManager: IObjectManager) {
     this.objectManager = objectManager;
     this.magi = new MagiTerminal();
 
-    // ── 1. UIの初期化待機（リトライロジック付き） ──
-    const tryBoot = () => {
+    // ── 1. UIの初期化待機 ──
+    // アロー関数を変数に代入し、再帰的に呼び出せるようにする
+    const mountUI = () => {
         const canvas = document.getElementById('sync-canvas');
         if (canvas) {
-            // 見つかったらMagi側の初期化を完了させる
+            // キャンバスが見つかった場合のみbootを実行
             this.magi.boot(); 
             
             this.magi.setSyncRatio(0);
@@ -49,29 +50,31 @@ export class WebTerminal {
             this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
             console.log("✅ [WebTerminal] UI Bootstrapped.");
         } else {
-            // 修正ポイント: 'this.tryBoot' ではなく 'tryBoot' を呼ぶ
-            // また、念のためログを出して追跡できるようにする
-            console.log("⏳ [WebTerminal] Waiting for Canvas...");
-            setTimeout(tryBoot, 100); 
+            // 見つからない場合は100ms後に自分を再実行
+            // ログを出してループしているか確認できるようにする
+            console.log("⏳ [WebTerminal] Searching for #sync-canvas...");
+            setTimeout(mountUI, 100); 
         }
     };
-    tryBoot();
 
-        // ── 2. 自動起動 ──
-        setTimeout(() => {
-            console.log("🚀 [AUTO-START] Initiating Camera...");
-            this._startCamera();
-        }, 2000);
+    // 最初の呼び出し
+    mountUI();
 
-        // ボタンのイベントリスナー（IDをHTMLと合わせる: stream-start-btn）
-        const btn = document.getElementById('stream-start-btn');
-        if (btn) {
-            btn.addEventListener('click', () => this._startCamera());
-        }
+    // ── 2. 自動起動（カメラなど） ──
+    setTimeout(() => {
+        console.log("🚀 [AUTO-START] Initiating Camera...");
+        this._startCamera();
+    }, 2000);
 
-        this._initWebRTC();
-        console.log('✅ WebTerminal initialized');
+    // ボタン設定
+    const btn = document.getElementById('stream-start-btn');
+    if (btn) {
+        btn.addEventListener('click', () => this._startCamera());
     }
+
+    this._initWebRTC();
+    console.log('✅ WebTerminal internal systems ready');
+}
 
     // ══════════════════════════════════════════
     //  WebRTC
