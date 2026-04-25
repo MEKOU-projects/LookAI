@@ -1,163 +1,43 @@
 //#region src/magiSystem.ts
 var e = class {
-	syncValue = 44.1;
-	canvas = null;
-	ctx = null;
-	animT = 0;
 	currentSync = 0;
-	tickerMessages = [];
-	constructor() {
-		this._startWave(), this._startClock(), document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", () => this._tryInitCanvas()) : this._tryInitCanvas();
-	}
-	_tryInitCanvas() {
-		if (this.canvas) return;
-		let e = document.getElementById("sync-canvas");
-		e && (this.canvas = e, this.ctx = e.getContext("2d"), window.addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas());
+	get nerv() {
+		return typeof window < "u" && window.NERV ? window.NERV : null;
 	}
 	setNodeStatus(e, t, n) {
-		let r = document.querySelector(`.bus-node[data-node-id="${e}"]`);
-		if (!r) return;
-		r.className = r.className.replace(/\b(active|ok|err|warn|dim)\b/g, "").trim(), r.classList.add("bus-node", t);
-		let i = r.querySelector(".status-dot");
-		if (i && (i.className = "status-dot " + (t === "active" || t === "ok" ? "ok" : t === "err" ? "err" : t === "warn" ? "warn" : "dim")), n !== void 0) {
-			let e = r.querySelector(".bus-node-detail");
-			e && (e.innerHTML = n.replace("\n", "<br>"));
-		}
-		this._syncStackColor(r);
-	}
-	setObjective(e, t) {
-		let n = document.getElementById("obj-task");
-		n && (n.textContent = e);
-		let r = document.querySelector(".progress-fill");
-		r && (r.style.width = Math.min(100, Math.max(0, t)) + "%");
-	}
-	setPlan(e) {
-		let t = document.getElementById("obj-plan");
-		t && (t.innerHTML = e.slice(0, 3).map((e) => `<span class="${e.level ?? ""}">&#62; ${e.text}</span>`).join("<br>"));
-	}
-	setECSStats(e, t, n) {
-		let r = document.getElementById("obj-ecs");
-		r && (r.innerHTML = `<span class="${n ? "ok" : "err"}">&#62; OBJECTS: ${e}</span><br><span class="${n ? "ok" : "err"}">&#62; COMPONENTS: ${t}</span><br><span class="${n ? "ok" : "err"}">&#62; SYSTEMS: ${n ? "OK" : "FAULT"}</span>`);
-	}
-	postLog(e, t = "default") {
-		let n = document.getElementById("log-grid");
-		if (!n) return;
-		let r = (/* @__PURE__ */ new Date()).toLocaleTimeString("ja-JP", { hour12: !1 }), i = document.createElement("div");
-		for (i.className = `log-entry ${t === "default" ? "" : t}`, i.textContent = `> ${r} ${e}`, n.prepend(i); n.children.length > 6;) n.lastChild.remove();
-		this._addToTicker(e);
+		this.nerv?.setNodeStatus(e, t, n);
 	}
 	setSyncRatio(e) {
-		this.syncValue = Math.max(0, Math.min(100, e));
-		let t = document.getElementById("sync-display");
-		t && (t.textContent = this.syncValue.toFixed(1) + "%", t.style.color = this.syncValue > 80 ? "#ffffff" : this.syncValue > 55 ? "#ffcc00" : "#ff6600"), this._updateSyncBars();
+		this.nerv?.setSyncRatio(e);
 	}
 	setMagiVerdicts(e) {
-		document.querySelectorAll(".magi-chip").forEach((t, n) => {
-			t.className = "magi-chip " + (e[n] === "agree" ? "agree" : e[n] === "reject" ? "reject" : "");
-		});
-		let t = e.filter((e) => e === "reject").length, n = document.getElementById("magi-verdict");
-		n && (n.innerHTML = t === 0 ? "<span class=\"acc\" style=\"color:var(--nerv-green)\">UNANIMOUS AGREE</span>" : `<span class="acc">DISAGREE: ${t}/3</span>`);
+		this.nerv?.setMagiVerdicts(e);
+	}
+	setObjective(e, t) {
+		this.nerv?.setObjective(e, t);
+	}
+	setPlan(e) {
+		this.nerv?.setPlan(e);
+	}
+	setECSStats(e, t, n) {
+		this.nerv?.setECSStats(e, t, n);
+	}
+	postLog(e, t = "default") {
+		this.nerv?.postLog(e, t);
 	}
 	setStreamingState(e) {
-		let t = document.getElementById("stream-start-btn"), n = document.getElementById("entity-badge");
-		t && (t.style.display = e ? "none" : "block"), n && (n.style.display = e ? "block" : "none"), this.setNodeStatus("camera", e ? "active" : "warn", e ? "STREAM: ACTIVE\n640 × 480" : "STREAM: STOPPED\nAWAITING");
-	}
-	boot(e) {
-		this.canvas && this.ctx || (this.canvas = e || document.getElementById("sync-canvas"), this.canvas ? (this.ctx = this.canvas.getContext("2d"), window.addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas(), console.log("✅ [MagiTerminal] Canvas acquired via boot(). Wave loop will pick it up next frame.")) : console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found."));
+		this.nerv?.setStreamingState(e);
 	}
 	attachCameraStream(e) {
-		let t = document.getElementById("camera-preview");
-		t && (t.srcObject = e, t.play().catch((e) => console.warn("[MagiTerminal] video.play():", e)));
+		this.nerv?.attachCameraStream(e);
 	}
 	renderDetection(e, t, n) {
-		let r = document.getElementById("camera-view");
-		if (!r) return;
-		let i = r.clientWidth, a = r.clientHeight, [o, s, c, l] = n, u = r.querySelector(`.detection-box[data-entity="${t}"]`);
-		if (!u) {
-			u = document.createElement("div"), u.className = "detection-box", u.setAttribute("data-entity", t);
-			let e = document.createElement("div");
-			e.className = "detection-label", u.appendChild(e), r.appendChild(u);
-		}
-		u.style.left = o * i + "px", u.style.top = s * a + "px", u.style.width = c * i + "px", u.style.height = l * a + "px";
-		let d = u.querySelector(".detection-label");
-		d && (d.textContent = `${e.toUpperCase()} [${t}]`);
+		this.nerv?.renderDetection(e, t, n);
 	}
 	clearDetections() {
-		let e = document.getElementById("camera-view");
-		e && e.querySelectorAll(".detection-box").forEach((e) => e.remove());
+		this.nerv?.clearDetections();
 	}
-	_resizeCanvas() {
-		this.canvas && (this.canvas.width = this.canvas.offsetWidth, this.canvas.height = this.canvas.offsetHeight);
-	}
-	_startWave() {
-		let e = [
-			{
-				stroke: "#ff2200",
-				mesh: "rgba(255,34,0,0.18)"
-			},
-			{
-				stroke: "#00ff44",
-				mesh: "rgba(0,255,68,0.14)"
-			},
-			{
-				stroke: "#0055ff",
-				mesh: "rgba(0,85,255,0.14)"
-			}
-		], t = () => {
-			let n = this.canvas, r = this.ctx;
-			if (!n || !r || n.width === 0) {
-				this._tryInitCanvas(), requestAnimationFrame(t);
-				return;
-			}
-			let i = n.width, a = n.height;
-			r.clearRect(0, 0, i, a);
-			let o = Math.max(0, (100 - this.syncValue) / 100), s = o * 35, c = 1 + o * 8, l = o * 3;
-			e.forEach(({ stroke: e, mesh: t }, n) => {
-				let u = n * l;
-				r.globalCompositeOperation = "screen", r.strokeStyle = e, r.lineWidth = .8 + (1 - o) * .7;
-				let d = [];
-				r.beginPath();
-				for (let e = 0; e < i; e++) {
-					let t = a / 2 + Math.sin(e * .02 + this.animT + u) * s;
-					d[e] = t, e === 0 ? r.moveTo(e, t - c) : r.lineTo(e, t - c);
-				}
-				r.stroke(), r.beginPath();
-				for (let e = 0; e < i; e++) e === 0 ? r.moveTo(e, d[e] + c) : r.lineTo(e, d[e] + c);
-				r.stroke(), r.strokeStyle = t, r.lineWidth = 1;
-				for (let e = 0; e < i; e += 6) r.beginPath(), r.moveTo(e, d[e] - c), r.lineTo(e, d[e] + c), r.stroke();
-				r.strokeStyle = `rgba(255,255,255,${.3 + (1 - o) * .4})`, r.lineWidth = .5, r.beginPath();
-				for (let e = 0; e < i; e++) e === 0 ? r.moveTo(e, d[e]) : r.lineTo(e, d[e]);
-				r.stroke();
-			}), this.animT += .03 + (1 - o) * .02, requestAnimationFrame(t);
-		};
-		t();
-	}
-	_updateSyncBars() {
-		let e = document.getElementById("sync-bars");
-		if (!e) return;
-		let t = Math.round(this.syncValue / 5);
-		e.innerHTML = Array.from({ length: 20 }, (e, n) => `<div class="sync-bar ${n < t ? n >= 16 ? "lit hi" : "lit" : ""}"></div>`).join("");
-	}
-	_startClock() {
-		let e = () => {
-			let e = document.getElementById("tree-clock");
-			e && (e.textContent = (/* @__PURE__ */ new Date()).toLocaleTimeString("ja-JP", { hour12: !1 }));
-		};
-		e(), setInterval(e, 1e3);
-	}
-	_addToTicker(e) {
-		this.tickerMessages.push(e), this.tickerMessages.length > 12 && this.tickerMessages.shift();
-		let t = document.querySelector(".log-ticker-inner");
-		t && (t.textContent = this.tickerMessages.join(" ·· "));
-	}
-	_syncStackColor(e) {
-		let t = e.closest(".node-stack");
-		if (!t) return;
-		let n = Array.from(t.querySelectorAll(".bus-node")).map((e) => e.classList.contains("err") ? 3 : e.classList.contains("warn") ? 2 : e.classList.contains("active") || e.classList.contains("ok") ? 1 : 0), r = Math.max(...n), i = r === 3 ? "err" : r === 2 ? "warn" : r === 1 ? "" : "dim";
-		t.className = t.className.replace(/\b(err|warn|dim)\b/g, "").trim(), i && t.classList.add(i), t.querySelectorAll(".stub").forEach((e) => {
-			e.className = "stub " + i;
-		});
-	}
+	boot(e) {}
 }, t = (e) => {
 	console.log("📦 Received objectManager:", e);
 	try {
@@ -172,14 +52,9 @@ var e = class {
 	magi;
 	_lastConfidenceSync = null;
 	constructor(t) {
-		this.objectManager = t, this.magi = new e();
-		let n = () => {
-			let e = document.getElementById("sync-canvas");
-			e ? (this.magi.boot(e), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "CREATE / FIND: OK\nINSTANCES: 1"), console.log("✅ [WebTerminal] MagiTerminal booted.")) : (console.log("⏳ [WebTerminal] waiting for #sync-canvas..."), setTimeout(n, 50));
-		};
-		n();
-		let r = document.getElementById("stream-start-btn");
-		r && r.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal internal systems ready");
+		this.objectManager = t, this.magi = new e(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "CREATE / FIND: OK\nINSTANCES: 1");
+		let n = document.getElementById("stream-start-btn");
+		n && n.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal internal systems ready");
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");

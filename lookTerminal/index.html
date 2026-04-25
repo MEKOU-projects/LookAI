@@ -260,5 +260,283 @@
         <script type="module" src="./dist/app.js"></script>
     Loading the raw .ts directly caused the video/mp2t MIME error in the console logs.
 -->
+
+<script>
+// ─────────────────────────────────────────────────────────────
+//  NERV Terminal — Inline UI Controller
+//  index.html 自身に埋め込む。app.js（別contextで動く）からは
+//  window.NERV.* のグローバル API 経由で制御できる。
+// ─────────────────────────────────────────────────────────────
+(function () {
+
+    // ── Canvas / Wave ─────────────────────────────────────────
+    let syncValue  = 0;
+    let animT      = 0;
+    let canvas, ctx;
+
+    const WIRE_COLORS = [
+        { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)'  },
+        { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)'  },
+        { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)'  },
+    ];
+    const MESH_STEP = 6;
+
+    function initCanvas() {
+        canvas = document.getElementById('sync-canvas');
+        if (!canvas) return;
+        ctx = canvas.getContext('2d');
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+    }
+
+    function resizeCanvas() {
+        if (!canvas) return;
+        canvas.width  = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+    }
+
+    function drawWave() {
+        if (!ctx || !canvas || canvas.width === 0) { requestAnimationFrame(drawWave); return; }
+
+        const W = canvas.width, H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        const drift      = Math.max(0, (100 - syncValue) / 100);
+        const amp        = drift * 35;
+        const band       = 1 + drift * 8;
+        const phaseShift = drift * 3.0;
+
+        WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
+            const phase = i * phaseShift;
+            ctx.globalCompositeOperation = 'screen';
+
+            const centres = new Array(W);
+            for (let x = 0; x < W; x++) {
+                centres[x] = H / 2 + Math.sin(x * 0.02 + animT + phase) * amp;
+            }
+
+            // Upper edge
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth   = 0.8 + (1 - drift) * 0.7;
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x] - band) : ctx.lineTo(x, centres[x] - band); }
+            ctx.stroke();
+
+            // Lower edge
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x] + band) : ctx.lineTo(x, centres[x] + band); }
+            ctx.stroke();
+
+            // Mesh
+            ctx.strokeStyle = mesh;
+            ctx.lineWidth   = 1;
+            for (let x = 0; x < W; x += MESH_STEP) {
+                ctx.beginPath(); ctx.moveTo(x, centres[x] - band); ctx.lineTo(x, centres[x] + band); ctx.stroke();
+            }
+
+            // Spine
+            ctx.strokeStyle = 'rgba(255,255,255,' + (0.3 + (1 - drift) * 0.4) + ')';
+            ctx.lineWidth   = 0.5;
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x]) : ctx.lineTo(x, centres[x]); }
+            ctx.stroke();
+        });
+
+        animT += 0.03 + (1 - drift) * 0.02;
+        requestAnimationFrame(drawWave);
+    }
+
+    // ── Clock ─────────────────────────────────────────────────
+    function startClock() {
+        const tick = () => {
+            const el = document.getElementById('tree-clock');
+            if (el) el.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+        };
+        tick();
+        setInterval(tick, 1000);
+    }
+
+    // ── Sync bars ─────────────────────────────────────────────
+    function updateSyncBars() {
+        const container = document.getElementById('sync-bars');
+        if (!container) return;
+        const filled = Math.round(syncValue / 5);
+        container.innerHTML = Array.from({ length: 20 }, (_, i) => {
+            const cls = i < filled ? (i >= 16 ? 'lit hi' : 'lit') : '';
+            return '<div class="sync-bar ' + cls + '"></div>';
+        }).join('');
+    }
+
+    // ── Ticker ────────────────────────────────────────────────
+    const tickerMsgs = [];
+    function addToTicker(msg) {
+        tickerMsgs.push(msg);
+        if (tickerMsgs.length > 12) tickerMsgs.shift();
+        const el = document.querySelector('.log-ticker-inner');
+        if (el) el.textContent = tickerMsgs.join(' ·· ');
+    }
+
+    // ── Stack color propagation ───────────────────────────────
+    function syncStackColor(node) {
+        const stack = node.closest('.node-stack');
+        if (!stack) return;
+        const statuses = Array.from(stack.querySelectorAll('.bus-node')).map(n => {
+            if (n.classList.contains('err'))  return 3;
+            if (n.classList.contains('warn')) return 2;
+            if (n.classList.contains('active') || n.classList.contains('ok')) return 1;
+            return 0;
+        });
+        const worst = Math.max(...statuses);
+        const wc = worst === 3 ? 'err' : worst === 2 ? 'warn' : worst === 1 ? '' : 'dim';
+        stack.className = stack.className.replace(/\b(err|warn|dim)\b/g, '').trim();
+        if (wc) stack.classList.add(wc);
+        stack.querySelectorAll('.stub').forEach(s => { s.className = 'stub ' + wc; });
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  window.NERV  — app.js から呼べるグローバル API
+    // ════════════════════════════════════════════════════════
+    window.NERV = {
+
+        /** バスノードの状態を更新 */
+        setNodeStatus(id, status, detail) {
+            const node = document.querySelector('.bus-node[data-node-id="' + id + '"]');
+            if (!node) return;
+            node.className = node.className.replace(/\b(active|ok|err|warn|dim)\b/g, '').trim();
+            node.classList.add('bus-node', status);
+            const dot = node.querySelector('.status-dot');
+            if (dot) dot.className = 'status-dot ' + (status === 'err' ? 'err' : status === 'warn' ? 'warn' : status === 'dim' ? 'dim' : 'ok');
+            if (detail !== undefined) {
+                const d = node.querySelector('.bus-node-detail');
+                if (d) d.innerHTML = detail.replace('\n', '<br>');
+            }
+            syncStackColor(node);
+        },
+
+        /** シンクロ率 0-100 を更新 */
+        setSyncRatio(value) {
+            syncValue = Math.max(0, Math.min(100, value));
+            const display = document.getElementById('sync-display');
+            if (display) {
+                display.textContent = syncValue.toFixed(1) + '%';
+                display.style.color = syncValue > 80 ? '#ffffff' : syncValue > 55 ? '#ffcc00' : '#ff6600';
+            }
+            updateSyncBars();
+        },
+
+        /** MAGI 判定を更新 ['agree'|'reject', ...] */
+        setMagiVerdicts(verdicts) {
+            const chips = document.querySelectorAll('.magi-chip');
+            chips.forEach((chip, i) => {
+                chip.className = 'magi-chip ' + (verdicts[i] === 'agree' ? 'agree' : verdicts[i] === 'reject' ? 'reject' : '');
+            });
+            const rejectCount = verdicts.filter(v => v === 'reject').length;
+            const verdict = document.getElementById('magi-verdict');
+            if (verdict) {
+                verdict.innerHTML = rejectCount === 0
+                    ? '<span class="acc" style="color:var(--nerv-green)">UNANIMOUS AGREE</span>'
+                    : '<span class="acc">DISAGREE: ' + rejectCount + '/3</span>';
+            }
+        },
+
+        /** 現在のタスクとプログレスバーを更新 */
+        setObjective(task, progress) {
+            const el = document.getElementById('obj-task');
+            if (el) el.textContent = task;
+            const fill = document.querySelector('.progress-fill');
+            if (fill) fill.style.width = Math.min(100, Math.max(0, progress)) + '%';
+        },
+
+        /** Next Plan を更新 [{text, level}] level: 'ok'|'warn'|'err' */
+        setPlan(items) {
+            const el = document.getElementById('obj-plan');
+            if (!el) return;
+            el.innerHTML = items.slice(0, 3).map(i =>
+                '<span class="' + (i.level || '') + '">&gt; ' + i.text + '</span>'
+            ).join('<br>');
+        },
+
+        /** ECS 整合性を更新 */
+        setECSStats(objects, components, systemsOk) {
+            const el = document.getElementById('obj-ecs');
+            if (!el) return;
+            const cls = systemsOk ? 'ok' : 'err';
+            el.innerHTML =
+                '<span class="' + cls + '">&gt; OBJECTS: ' + objects + '</span><br>' +
+                '<span class="' + cls + '">&gt; COMPONENTS: ' + components + '</span><br>' +
+                '<span class="' + cls + '">&gt; SYSTEMS: ' + (systemsOk ? 'OK' : 'FAULT') + '</span>';
+        },
+
+        /** Priority Log にエントリを追加 */
+        postLog(message, level) {
+            const grid = document.getElementById('log-grid');
+            if (!grid) return;
+            const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+            const div = document.createElement('div');
+            div.className = 'log-entry ' + (level === 'default' || !level ? '' : level);
+            div.textContent = '> ' + ts + ' ' + message;
+            grid.prepend(div);
+            while (grid.children.length > 6) grid.lastChild.remove();
+            addToTicker(message);
+        },
+
+        /** ストリーミング状態を切り替え（START ボタン ↔ ENTITY SYNC バッジ） */
+        setStreamingState(isStreaming) {
+            const btn   = document.getElementById('stream-start-btn');
+            const badge = document.getElementById('entity-badge');
+            if (btn)   btn.style.display   = isStreaming ? 'none'  : 'block';
+            if (badge) badge.style.display = isStreaming ? 'block' : 'none';
+            window.NERV.setNodeStatus('camera',
+                isStreaming ? 'active' : 'warn',
+                isStreaming ? 'STREAM: ACTIVE\n640 × 480' : 'STREAM: STOPPED\nAWAITING'
+            );
+        },
+
+        /** カメラ映像を video 要素にセット */
+        attachCameraStream(stream) {
+            const video = document.getElementById('camera-preview');
+            if (video) { video.srcObject = stream; video.play().catch(() => {}); }
+        },
+
+        /** バウンディングボックスをカメラビューに描画 */
+        renderDetection(label, entityId, bboxNorm) {
+            const view = document.getElementById('camera-view');
+            if (!view) return;
+            const W = view.clientWidth, H = view.clientHeight;
+            const [nx, ny, nw, nh] = bboxNorm;
+            let box = view.querySelector('.detection-box[data-entity="' + entityId + '"]');
+            if (!box) {
+                box = document.createElement('div');
+                box.className = 'detection-box';
+                box.setAttribute('data-entity', entityId);
+                const lbl = document.createElement('div');
+                lbl.className = 'detection-label';
+                box.appendChild(lbl);
+                view.appendChild(box);
+            }
+            box.style.left = (nx * W) + 'px'; box.style.top    = (ny * H) + 'px';
+            box.style.width = (nw * W) + 'px'; box.style.height = (nh * H) + 'px';
+            const lbl = box.querySelector('.detection-label');
+            if (lbl) lbl.textContent = label.toUpperCase() + ' [' + entityId + ']';
+        },
+
+        /** 全バウンディングボックスを消去 */
+        clearDetections() {
+            const view = document.getElementById('camera-view');
+            if (view) view.querySelectorAll('.detection-box').forEach(el => el.remove());
+        },
+    };
+
+    // ── Boot ──────────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        initCanvas();
+        startClock();
+        drawWave();
+        updateSyncBars();
+        console.log('✅ [NERV] UI inline controller ready. window.NERV API available.');
+    });
+
+})();
+</script>
 </body>
 </html>

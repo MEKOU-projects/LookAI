@@ -36,26 +36,12 @@ export class WebTerminal {
         this.objectManager = objectManager;
         this.magi = new MagiTerminal();
 
-        // ── UI Boot ──────────────────────────────────────────────────────
-        // app.js は index.html の iframe 内で実行される。
-        // window.parent へのアクセスは CORS で弾かれるため、自分の document だけを使う。
-        // MagiTerminal._startWave() はループ済みなので、
-        // canvas が取得できた次フレームから描画が自動的に始まる。
-        const tryBoot = () => {
-            const canvas = document.getElementById('sync-canvas') as HTMLCanvasElement | null;
-            if (canvas) {
-                this.magi.boot(canvas);
-                this.magi.setSyncRatio(0);
-                this.magi.setObjective('WAITING FOR COMMAND', 0);
-                this.magi.setNodeStatus('object-mgr', 'active', 'CREATE / FIND: OK\nINSTANCES: 1');
-                console.log('✅ [WebTerminal] MagiTerminal booted.');
-            } else {
-                // DOMが描画される前に呼ばれた場合のリトライ（50ms間隔、CORS不要）
-                console.log('⏳ [WebTerminal] waiting for #sync-canvas...');
-                setTimeout(tryBoot, 50);
-            }
-        };
-        tryBoot();
+        // ── UI init ──────────────────────────────────────────────────────
+        // DOM と描画は index.html のインラインスクリプト (window.NERV) が管理する。
+        // MagiTerminal は window.NERV の薄いラッパーなので canvas 探索は不要。
+        this.magi.setSyncRatio(0);
+        this.magi.setObjective('WAITING FOR COMMAND', 0);
+        this.magi.setNodeStatus('object-mgr', 'active', 'CREATE / FIND: OK\nINSTANCES: 1');
 
         // START STREAM ボタン
         const btn = document.getElementById('stream-start-btn');
