@@ -1,103 +1,402 @@
+// ─────────────────────────────────────────────
+//  MagiSystem.ts  —  NERV Terminal UI Controller
+//  All DOM manipulation lives here.
+//  index.ts calls these methods; no ECS logic inside.
+// ─────────────────────────────────────────────
+
+export type NodeStatus = 'active' | 'ok' | 'err' | 'warn' | 'dim';
+export type LogLevel   = 'default' | 'ok' | 'warn' | 'critical';
+export type MagiVerdict = 'agree' | 'reject' | 'pending';
+
+// Shape of a signal-bus node (matches the HTML structure in index.html)
+export interface BusNodeConfig {
+    id: string;           // must match data-node-id in HTML
+    status: NodeStatus;
+    detail: string;       // up to 2 lines, separate with \n
+}
+
 export class MagiTerminal {
+
+    // ── Sync wave ──────────────────────────────
     private syncValue: number = 44.1;
     private canvas: HTMLCanvasElement | null = null;
     private ctx: CanvasRenderingContext2D | null = null;
-    private animationId: number = 0;
+    private animT: number = 0;
+
+    // ── Log ticker text ────────────────────────
+    private tickerMessages: string[] = [];
 
     constructor() {
-        this.initCanvas();
-        this.startAnimation();
+        this._initCanvas();
+        this._startWave();
+        this._startClock();
     }
 
-    private initCanvas() {
-        this.canvas = document.querySelector('#sync-canvas') as HTMLCanvasElement;
-        if (this.canvas) {
-            this.ctx = this.canvas.getContext('2d');
-            // リサイズ対応
-            window.addEventListener('resize', () => this.updateCanvasSize());
-            this.updateCanvasSize();
+    // ══════════════════════════════════════════
+    //  PUBLIC API
+    // ══════════════════════════════════════════
+
+    /**
+     * Update a signal-bus node's status and detail text.
+     *
+     * @example
+     * magi.setNodeStatus('webrtc', 'active', 'CONNECTED\nSTREAMING: LIVE');
+     * magi.setNodeStatus('haptic', 'dim',    'NOT FOUND\nREJECTED');
+     * magi.setNodeStatus('magi-sys', 'err',  'MIME ERR: mp2t\nMODULE BLOCKED');
+     */
+    public setNodeStatus(id: string, status: NodeStatus, detail?: string): void {
+        const node = document.querySelector<HTMLElement>(`.bus-node[data-node-id="${id}"]`);
+        if (!node) return;
+
+        // swap status class
+        node.className = node.className
+            .replace(/\b(active|ok|err|warn|dim)\b/g, '')
+            .trim();
+        node.classList.add('bus-node', status);
+
+        // dot
+        const dot = node.querySelector<HTMLElement>('.status-dot');
+        if (dot) {
+            dot.className = 'status-dot ' + (
+                status === 'active' ? 'ok' :
+                status === 'ok'     ? 'ok' :
+                status === 'err'    ? 'err' :
+                status === 'warn'   ? 'warn' : 'dim'
+            );
+        }
+
+        // detail text
+        if (detail !== undefined) {
+            const detailEl = node.querySelector<HTMLElement>('.bus-node-detail');
+            if (detailEl) detailEl.innerHTML = detail.replace('\n', '<br>');
+        }
+
+        // propagate wire / stub colours in the parent stack
+        this._syncStackColor(node);
+    }
+
+    /**
+     * Update the "Current Objective" block.
+     * @param task     short task label
+     * @param progress 0–100
+     */
+    public setObjective(task: string, progress: number): void {
+        const el = document.getElementById('obj-task');
+        if (el) el.textContent = task;
+        const fill = document.querySelector<HTMLElement>('.progress-fill');
+        if (fill) fill.style.width = Math.min(100, Math.max(0, progress)) + '%';
+    }
+
+    /**
+     * Update the "Next Plan" lines.
+     * Pass up to 3 items; each can have an optional level ('ok'|'warn'|'err').
+     *
+     * @example
+     * magi.setPlan([
+     *   { text: 'HAPTIC_SENSOR: REQUEST', level: 'warn' },
+     *   { text: 'YOLO CONFIDENCE +',      level: 'ok'   },
+     *   { text: 'STREAM STABILIZE' }
+     * ]);
+     */
+    public setPlan(items: { text: string; level?: 'ok' | 'warn' | 'err' }[]): void {
+        const el = document.getElementById('obj-plan');
+        if (!el) return;
+        el.innerHTML = items.slice(0, 3).map(i =>
+            `<span class="${i.level ?? ''}">&#62; ${i.text}</span>`
+        ).join('<br>');
+    }
+
+    /**
+     * Update ECS integrity stats shown in the objective bar.
+     */
+    public setECSStats(objects: number, components: number, systemsOk: boolean): void {
+        const el = document.getElementById('obj-ecs');
+        if (!el) return;
+        el.innerHTML =
+            `<span class="${systemsOk ? 'ok' : 'err'}">&#62; OBJECTS: ${objects}</span><br>` +
+            `<span class="${systemsOk ? 'ok' : 'err'}">&#62; COMPONENTS: ${components}</span><br>` +
+            `<span class="${systemsOk ? 'ok' : 'err'}">&#62; SYSTEMS: ${systemsOk ? 'OK' : 'FAULT'}</span>`;
+    }
+
+    /**
+     * Post a message to the Priority Log.
+     * @param message  log text (keep short — single line)
+     * @param level    'default' | 'ok' | 'warn' | 'critical'
+     */
+    public postLog(message: string, level: LogLevel = 'default'): void {
+        const grid = document.getElementById('log-grid');
+        if (!grid) return;
+
+        const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+        const div = document.createElement('div');
+        div.className = `log-entry ${level === 'default' ? '' : level}`;
+        div.textContent = `> ${ts} ${message}`;
+        grid.prepend(div);
+        // keep at most 6 entries (3 col × 2 row)
+        while (grid.children.length > 6) grid.lastChild!.remove();
+
+        // also push to ticker
+        this._addToTicker(message);
+    }
+
+    /**
+     * Set the sync ratio (0–100).
+     * Drives: wave convergence, numeric display, bar fill, colour, and MAGI verdict.
+     */
+    public setSyncRatio(value: number): void {
+        this.syncValue = Math.max(0, Math.min(100, value));
+
+        const display = document.getElementById('sync-display');
+        if (display) {
+            display.textContent = this.syncValue.toFixed(1) + '%';
+            display.style.color =
+                this.syncValue > 80 ? '#ffffff' :
+                this.syncValue > 55 ? '#ffcc00' : '#ff6600';
+        }
+        this._updateSyncBars();
+    }
+
+    /**
+     * Override MAGI-1/2/3 chip verdicts individually.
+     * @param verdicts array of 3 verdicts in order [MAGI-1, MAGI-2, MAGI-3]
+     */
+    public setMagiVerdicts(verdicts: [MagiVerdict, MagiVerdict, MagiVerdict]): void {
+        const chips = document.querySelectorAll<HTMLElement>('.magi-chip');
+        chips.forEach((chip, i) => {
+            chip.className = 'magi-chip ' + (verdicts[i] === 'agree' ? 'agree' : verdicts[i] === 'reject' ? 'reject' : '');
+        });
+        const rejectCount = verdicts.filter(v => v === 'reject').length;
+        const verdict = document.getElementById('magi-verdict');
+        if (verdict) {
+            verdict.innerHTML = rejectCount === 0
+                ? '<span class="acc" style="color:var(--nerv-green)">UNANIMOUS AGREE</span>'
+                : `<span class="acc">DISAGREE: ${rejectCount}/3</span>`;
         }
     }
 
-    private updateCanvasSize() {
-        if (this.canvas) {
-            this.canvas.width = this.canvas.offsetWidth;
-            this.canvas.height = this.canvas.offsetHeight;
+    /**
+     * Show/hide the START STREAM button and ENTITY SYNC badge.
+     * Call with true once the camera stream is live.
+     */
+    public setStreamingState(isStreaming: boolean): void {
+        const btn   = document.getElementById('stream-start-btn');
+        const badge = document.getElementById('entity-badge');
+        if (btn)   btn.style.display   = isStreaming ? 'none'  : 'block';
+        if (badge) badge.style.display = isStreaming ? 'block' : 'none';
+
+        // also update camera node in bus
+        this.setNodeStatus('camera',
+            isStreaming ? 'active' : 'warn',
+            isStreaming ? 'STREAM: ACTIVE\n640 × 480' : 'STREAM: STOPPED\nAWAITING'
+        );
+    }
+
+    /**
+     * Attach the camera MediaStream to the video element.
+     */
+    public attachCameraStream(stream: MediaStream): void {
+        const video = document.getElementById('camera-preview') as HTMLVideoElement | null;
+        if (video) {
+            video.srcObject = stream;
+            video.play().catch(e => console.warn('[MagiTerminal] video.play():', e));
         }
     }
 
-    private startAnimation() {
+    /**
+     * Render a detection bounding box inside the camera view.
+     * bbox: [x_norm, y_norm, w_norm, h_norm] — all 0..1 relative to camera-view size.
+     * Call repeatedly each frame (old boxes are cleared on each call).
+     *
+     * @example
+     * magi.renderDetection('cat', 'entity_001', [0.2, 0.3, 0.4, 0.35]);
+     */
+    public renderDetection(label: string, entityId: string, bboxNorm: [number, number, number, number]): void {
+        const view = document.getElementById('camera-view');
+        if (!view) return;
+
+        const W = view.clientWidth;
+        const H = view.clientHeight;
+        const [nx, ny, nw, nh] = bboxNorm;
+
+        // reuse or create box
+        let box = view.querySelector<HTMLElement>(`.detection-box[data-entity="${entityId}"]`);
+        if (!box) {
+            box = document.createElement('div');
+            box.className = 'detection-box';
+            box.setAttribute('data-entity', entityId);
+            const lbl = document.createElement('div');
+            lbl.className = 'detection-label';
+            box.appendChild(lbl);
+            view.appendChild(box);
+        }
+
+        box.style.left   = (nx * W) + 'px';
+        box.style.top    = (ny * H) + 'px';
+        box.style.width  = (nw * W) + 'px';
+        box.style.height = (nh * H) + 'px';
+
+        const lbl = box.querySelector<HTMLElement>('.detection-label');
+        if (lbl) lbl.textContent = `${label.toUpperCase()} [${entityId}]`;
+    }
+
+    /** Remove all detection boxes (call at start of each frame). */
+    public clearDetections(): void {
+        const view = document.getElementById('camera-view');
+        if (!view) return;
+        view.querySelectorAll('.detection-box').forEach(el => el.remove());
+    }
+
+    // ══════════════════════════════════════════
+    //  PRIVATE INTERNALS
+    // ══════════════════════════════════════════
+
+    private _initCanvas(): void {
+        this.canvas = document.getElementById('sync-canvas') as HTMLCanvasElement | null;
+        if (!this.canvas) return;
+        this.ctx = this.canvas.getContext('2d');
+        window.addEventListener('resize', () => this._resizeCanvas());
+        this._resizeCanvas();
+    }
+
+    private _resizeCanvas(): void {
+        if (!this.canvas) return;
+        this.canvas.width  = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+    }
+
+    private _startWave(): void {
+        // Wire-mesh wave: each RGB channel gets
+        //   - upper edge line
+        //   - lower edge line (mirrored)
+        //   - vertical grid lines between them (mesh fill)
+        // At 100% sync all three phases collapse to zero → single white line.
+
+        const WIRE_COLORS = [
+            { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)'   },   // R
+            { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)'   },   // G
+            { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)'   },   // B
+        ];
+        const MESH_STEP = 6;   // px between vertical grid lines
+
         const draw = () => {
-            if (!this.ctx || !this.canvas) return;
-            const { width, height } = this.canvas;
-            this.ctx.clearRect(0, 0, width, height);
+            if (!this.ctx || !this.canvas) { requestAnimationFrame(draw); return; }
+            const ctx = this.ctx;
+            const { width: W, height: H } = this.canvas;
+            ctx.clearRect(0, 0, W, H);
 
-            const time = Date.now() * 0.002;
-            const colors = ['#ff0000', '#00ff00', '#0088ff'];
-            
-            // シンクロ率が高いほど、波形のズレ（位相差）を小さくする
-            // 100% で差が 0 になり、一本の白い波に見えるようになる
             const convergence = Math.max(0, (100 - this.syncValue) / 100);
+            // amplitude: bigger when de-synced, collapses at 100 %
+            const amp   = 8 + convergence * 26;
 
-            colors.forEach((color, i) => {
-                this.ctx!.beginPath();
-                this.ctx!.strokeStyle = color;
-                this.ctx!.lineWidth = 2;
-                this.ctx!.globalCompositeOperation = 'screen'; // 色が重なると白くなる設定
+            WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
+                const phase = i * convergence * 2.2;
+                // half-thickness of the wire band (independent of amp so the wire stays visible)
+                const band  = 3 + convergence * 4;
 
-                for (let x = 0; x < width; x++) {
-                    const phaseShift = i * convergence * 2;
-                    const amplitude = 20 + convergence * 30; // シンクロ率が低いと波が激しくなる
-                    
-                    const y = (height / 2) + 
-                              Math.sin(x * 0.02 + time + phaseShift) * amplitude * Math.sin(time * 0.5);
-                    
-                    if (x === 0) this.ctx!.moveTo(x, y);
-                    else this.ctx!.lineTo(x, y);
+                // Pre-compute y-centres for each x
+                const centres: number[] = new Array(W);
+                for (let x = 0; x < W; x++) {
+                    centres[x] = H / 2
+                        + Math.sin(x * 0.022 + this.animT + phase) * amp
+                        * Math.sin(this.animT * 0.3 + i * 0.5);
                 }
-                this.ctx!.stroke();
+
+                ctx.globalCompositeOperation = 'screen';
+
+                // ── mesh fill (vertical lines between upper/lower edges) ──
+                ctx.strokeStyle = mesh;
+                ctx.lineWidth   = 1;
+                for (let x = 0; x < W; x += MESH_STEP) {
+                    const cy = centres[x];
+                    ctx.beginPath();
+                    ctx.moveTo(x, cy - band);
+                    ctx.lineTo(x, cy + band);
+                    ctx.stroke();
+                }
+
+                // ── upper edge ──
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth   = 1.5;
+                ctx.beginPath();
+                for (let x = 0; x < W; x++) {
+                    const y = centres[x] - band;
+                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                // ── lower edge ──
+                ctx.beginPath();
+                for (let x = 0; x < W; x++) {
+                    const y = centres[x] + band;
+                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+
+                // ── bright centre spine (thinner, more luminous) ──
+                ctx.lineWidth = 0.8;
+                ctx.beginPath();
+                for (let x = 0; x < W; x++) {
+                    const y = centres[x];
+                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+                }
+                ctx.stroke();
             });
 
-            this.animationId = requestAnimationFrame(draw);
+            this.animT += 0.025;
+            requestAnimationFrame(draw);
         };
         draw();
     }
 
-    // 階層ツリーを更新
-    public updateConnectionTree(hierarchy: any[]) {
-        const container = document.querySelector('#top-interface div:last-child');
+    private _updateSyncBars(): void {
+        const container = document.getElementById('sync-bars');
         if (!container) return;
-        
-        // 階層を構築
-        container.innerHTML = hierarchy.map(node => `
-            <span style="margin-right: 20px;">
-                <b style="color: var(--nerv-orange);">${node.name.toUpperCase()}</b>: 
-                [${node.components.join(', ')}]
-            </span>
-        `).join('');
+        const filled = Math.round(this.syncValue / 5);
+        container.innerHTML = Array.from({ length: 20 }, (_, i) => {
+            const cls = i < filled ? (i >= 16 ? 'lit hi' : 'lit') : '';
+            return `<div class="sync-bar ${cls}"></div>`;
+        }).join('');
     }
 
-    // 緊急ログ・不満ログの追加
-    public postPriorityLog(message: string, isCritical: boolean = false) {
-        const logContainer = document.querySelector('.log-container');
-        if (!logContainer) return;
-
-        const entry = document.createElement('div');
-        entry.className = `log-entry ${isCritical ? 'critical' : ''}`;
-        entry.textContent = `> ${new Date().toLocaleTimeString()} : ${message}`;
-        
-        logContainer.prepend(entry);
-        if (logContainer.childNodes.length > 8) logContainer.lastChild?.remove();
+    private _startClock(): void {
+        const tick = () => {
+            const el = document.getElementById('tree-clock');
+            if (el) el.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+        };
+        tick();
+        setInterval(tick, 1000);
     }
 
-    // シンクロ率の更新
-    public setSyncRatio(value: number) {
-        this.syncValue = value;
-        const display = document.querySelector('#left-sync div div');
-        if (display) {
-            display.textContent = `${value.toFixed(1)}%`;
-            // シンクロ率に合わせて色を変える
-            display.parentElement!.style.color = value > 80 ? '#fff' : 'var(--nerv-orange)';
-        }
+    private _addToTicker(msg: string): void {
+        this.tickerMessages.push(msg);
+        if (this.tickerMessages.length > 12) this.tickerMessages.shift();
+        const ticker = document.querySelector<HTMLElement>('.log-ticker-inner');
+        if (ticker) ticker.textContent = this.tickerMessages.join(' ·· ');
+    }
+
+    /** Walk up from a bus-node and recolour the stack trunk + wires based on worst child status. */
+    private _syncStackColor(node: HTMLElement): void {
+        const stack = node.closest<HTMLElement>('.node-stack');
+        if (!stack) return;
+
+        const statuses = Array.from(stack.querySelectorAll<HTMLElement>('.bus-node'))
+            .map(n => {
+                if (n.classList.contains('err'))  return 3;
+                if (n.classList.contains('warn')) return 2;
+                if (n.classList.contains('active') || n.classList.contains('ok')) return 1;
+                return 0;
+            });
+        const worst = Math.max(...statuses);
+        const worstClass = worst === 3 ? 'err' : worst === 2 ? 'warn' : worst === 1 ? '' : 'dim';
+
+        // re-apply trunk class
+        stack.className = stack.className
+            .replace(/\b(err|warn|dim)\b/g, '').trim();
+        if (worstClass) stack.classList.add(worstClass);
+
+        // stubs in same stack
+        stack.querySelectorAll<HTMLElement>('.stub').forEach(s => {
+            s.className = 'stub ' + worstClass;
+        });
     }
 }

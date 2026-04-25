@@ -2,150 +2,263 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <style>
-        :root {
-            --nerv-orange: #ff9d00;
-            --nerv-red: #ff0000;
-            --nerv-yellow: #fad333;
-            --bg-dim: rgba(20, 20, 20, 0.7);
-        }
-
-        html, body {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background: transparent !important;
-            color: #fff;
-            font-family: 'Share Tech Mono', monospace; /* デジタル感のあるフォント推奨 */
-            overflow: hidden;
-        }
-
-        #ui-container {
-            display: grid;
-            grid-template-columns: 250px 1fr 250px;
-            grid-template-rows: 100px 1fr 150px;
-            width: 100vw; height: 100vh;
-            gap: 10px;
-            padding: 10px;
-            box-sizing: border-box;
-            pointer-events: none;
-        }
-
-        /* --- エヴァ風パネル基底 --- */
-        .nerv-panel {
-            background: var(--bg-dim);
-            border: 1px solid var(--nerv-orange);
-            position: relative;
-            pointer-events: auto;
-            backdrop-filter: blur(4px);
-        }
-
-        /* スラッシュ模様（上部・または端に配置） */
-        .slash-bar {
-            height: 8px;
-            width: 100%;
-            background: repeating-linear-gradient(-45deg, 
-                #000 0 4px, 
-                var(--nerv-orange) 4px 8px
-            );
-        }
-
-        .slash-bar.warning { background: repeating-linear-gradient(-45deg, #000 0 4px, var(--nerv-yellow) 4px 8px); }
-        .slash-bar.critical { background: repeating-linear-gradient(-45deg, #000 0 4px, var(--nerv-red) 4px 8px); }
-
-        /* --- 各エリアの定義 --- */
-
-        /* 上：Interface階層 */
-        #top-interface {
-            grid-column: 1 / 4;
-            grid-row: 1;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* 左：シンクロ率 (Sync Wave) */
-        #left-sync {
-            grid-column: 1;
-            grid-row: 2;
-            display: flex;
-            flex-direction: column;
-            border-left: 4px solid var(--nerv-orange);
-        }
-
-        /* 下：緊急ログ */
-        #bottom-log {
-            grid-column: 2 / 4;
-            grid-row: 3;
-            border-top: 2px solid var(--nerv-red);
-        }
-
-        .label {
-            font-size: 10px;
-            padding: 2px 5px;
-            background: var(--nerv-orange);
-            color: #000;
-            width: fit-content;
-            font-weight: bold;
-        }
-
-        canvas#sync-canvas {
-            width: 100%;
-            height: 100%;
-            opacity: 0.8;
-        }
-
-        .log-container {
-            padding: 5px;
-            font-size: 12px;
-            color: var(--nerv-red);
-            overflow-y: hidden;
-        }
-
-        .log-entry {
-            border-left: 2px solid var(--nerv-red);
-            padding-left: 5px;
-            margin-bottom: 2px;
-            animation: blink 2s infinite;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-    </style>
+    <link rel="stylesheet" href="./nerv.css">
 </head>
 <body>
-    <div id="ui-container">
-        <div id="top-interface" class="nerv-panel">
-            <div class="slash-bar"></div>
-            <div class="label">INTERFACE CONNECTION TREE</div>
-            <div style="padding: 5px; font-size: 10px; display: flex; gap: 20px;">
-                <span>> NETWORK: OK</span>
-                <span>> WEBRTC: LINKED</span>
-                <span>> CAMERA: STREAMING</span>
-                <span style="color: gray;">> GRABBER: NONE (REJECTED)</span>
-            </div>
+<div id="ui-container">
+
+    <!-- ══════════════════════════════════════
+         TOP: SIGNAL BUS CONNECTION TREE
+         ══════════════════════════════════════ -->
+    <div id="top-panel" class="panel">
+        <div class="slash"></div>
+        <div class="tree-header">
+            <div class="panel-label">INTERFACE CONNECTION TREE</div>
+            <span id="tree-clock" class="tree-clock">--:--:--</span>
         </div>
 
-        <div id="left-sync" class="nerv-panel">
-            <div class="label">SYNC RATIO</div>
-            <canvas id="sync-canvas"></canvas>
-            <div style="position: absolute; bottom: 10px; width: 100%; text-align: center;">
-                <div style="font-size: 24px; color: var(--nerv-orange);">44.1%</div>
-            </div>
-        </div>
+        <!--
+            SIGNAL BUS LAYOUT
+            ──────────────────────────────────────────────────
+            [NERV]──wire──[OBJECT MGR]──wire──┬─[NETWORK ]
+                                              └─[WEBRTC  ]
+                                   ──wire──┬─[CAMERA   ]
+                                           └─[DETECTION]
+                                   ──wire──┬─[MAGI SYS ]  (err)
+                                           └─[IFRAME   ]  (err)
+                                   ──wire──  [GRABBER  ]  (dim)
+                                   ──wire──  [HAPTIC   ]  (dim/warn)
+            ──────────────────────────────────────────────────
+            Each .bus-node carries data-node-id so MagiTerminal.setNodeStatus() can target it.
+        -->
+        <div class="bus-container">
 
-        <div id="bottom-log" class="nerv-panel">
-            <div class="slash-bar critical"></div>
-            <div class="label" style="background: var(--nerv-red);">PRIORITY LOG</div>
-            <div class="log-container">
-                <div class="log-entry">> WARNING: LLM REQUESTED INTERFACE 'HAPTIC_SENSOR' - NOT FOUND</div>
-                <div class="log-entry">> CAUTION: PREDICTION MISMATCH ON 'YOLO-DOG-2' (DIFF: 0.42)</div>
-                <div class="log-entry">> MAGI-1: AGREE / MAGI-2: AGREE / MAGI-3: DISAGREE</div>
+            <!-- ROOT -->
+            <div class="bus-root">
+                <div class="bus-root-name">NERV</div>
+                <div class="bus-root-sub">SYSTEM</div>
+            </div>
+
+            <!-- wire → OBJECT MGR (single node) -->
+            <div class="wire md"></div>
+            <div class="node-stack">
+                <div class="node-row">
+                    <div class="bus-node active" data-node-id="object-mgr">
+                        <div class="bus-node-name"><span class="status-dot ok"></span>OBJECT MGR</div>
+                        <!-- overridden by magi.setNodeStatus('object-mgr', ...) -->
+                        <div class="bus-node-detail">CREATE / FIND: OK<br>INSTANCES: --</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- wire → NETWORK + WEBRTC (stacked) -->
+            <div class="wire lg"></div>
+            <div class="node-stack multi">
+                <div class="node-row">
+                    <div class="stub"></div>
+                    <div class="bus-node active" data-node-id="network">
+                        <div class="bus-node-name"><span class="status-dot ok"></span>NETWORK</div>
+                        <!-- overridden by magi.setNodeStatus('network', ...) on WebRTC connect -->
+                        <div class="bus-node-detail">WS-BRIDGE: --<br>LATENCY: --</div>
+                    </div>
+                </div>
+                <div class="node-row">
+                    <div class="stub"></div>
+                    <div class="bus-node active" data-node-id="webrtc">
+                        <div class="bus-node-name"><span class="status-dot ok"></span>WEBRTC</div>
+                        <!-- overridden by magi.setNodeStatus('webrtc', ...) -->
+                        <div class="bus-node-detail">CONNECTING...<br>STREAM: --</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- wire → CAMERA + DETECTION (stacked) -->
+            <div class="wire lg"></div>
+            <div class="node-stack multi">
+                <div class="node-row">
+                    <div class="stub"></div>
+                    <div class="bus-node warn" data-node-id="camera">
+                        <div class="bus-node-name"><span class="status-dot warn"></span>CAMERA</div>
+                        <div class="bus-node-detail">STREAM: STOPPED<br>AWAITING</div>
+                    </div>
+                </div>
+                <div class="node-row">
+                    <div class="stub warn"></div>
+                    <div class="bus-node warn" data-node-id="detection">
+                        <div class="bus-node-name"><span class="status-dot warn"></span>DETECTION</div>
+                        <div class="bus-node-detail">YOLO: STANDBY<br>ENTITY SYNC: OFF</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- wire (err) → MAGI SYS + IFRAME (stacked, errors) -->
+            <div class="wire lg err"></div>
+            <div class="node-stack multi err">
+                <div class="node-row">
+                    <div class="stub err"></div>
+                    <div class="bus-node err" data-node-id="magi-sys">
+                        <div class="bus-node-name"><span class="status-dot err"></span>MAGI SYS</div>
+                        <div class="bus-node-detail">MIME ERR: mp2t<br>MODULE BLOCKED</div>
+                    </div>
+                </div>
+                <div class="node-row">
+                    <div class="stub err"></div>
+                    <div class="bus-node err" data-node-id="iframe">
+                        <div class="bus-node-name"><span class="status-dot err"></span>IFRAME</div>
+                        <div class="bus-node-detail">CROSS-ORIGIN<br>DOC: BLOCKED</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- wire (dim) → GRABBER (single, unused) -->
+            <div class="wire md dim"></div>
+            <div class="node-stack">
+                <div class="node-row">
+                    <div class="bus-node dim" data-node-id="grabber">
+                        <div class="bus-node-name"><span class="status-dot dim"></span>GRABBER</div>
+                        <div class="bus-node-detail">NOT FOUND<br>LLM REQUEST</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- wire (dim) → HAPTIC (single, missing) -->
+            <div class="wire sm dim"></div>
+            <div class="node-stack">
+                <div class="node-row">
+                    <div class="bus-node dim" data-node-id="haptic">
+                        <div class="bus-node-name"><span class="status-dot dim"></span>HAPTIC</div>
+                        <div class="bus-node-detail">SENSOR: NONE<br>REJECTED</div>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /.bus-container -->
+    </div><!-- /#top-panel -->
+
+
+    <!-- ══════════════════════════════════════
+         LEFT: SYNC WAVE + MAGI
+         ══════════════════════════════════════ -->
+    <div id="left-panel" class="panel">
+        <div class="panel-label">SYNC RATIO</div>
+        <canvas id="sync-canvas"></canvas>
+        <div class="sync-bottom">
+            <!-- initial value; overridden by magi.setSyncRatio() -->
+            <div id="sync-display" class="sync-big">--.--%</div>
+            <div class="sync-sub">NEURAL SYNC</div>
+            <div class="sync-bars" id="sync-bars"></div>
+            <div class="magi-row">
+                <div class="magi-chip agree">MAGI-1</div>
+                <div class="magi-chip agree">MAGI-2</div>
+                <div class="magi-chip reject">MAGI-3</div>
+            </div>
+            <div class="magi-verdict" id="magi-verdict">
+                <span class="acc">DISAGREE: 1/3</span>
             </div>
         </div>
     </div>
 
-    <script type="module" src="./src/magiSystem.ts">
-    </script>
+
+    <!-- ══════════════════════════════════════
+         CENTER: OBJECTIVE + CAMERA VIEW
+         ══════════════════════════════════════ -->
+    <div id="center-panel">
+
+        <!-- Objective bar -->
+        <div id="objective-panel" class="panel">
+            <div class="slash thin"></div>
+            <div class="obj-row">
+                <div class="obj-block">
+                    <div class="obj-title">CURRENT OBJECTIVE</div>
+                    <!-- overridden by magi.setObjective() -->
+                    <div class="obj-value" id="obj-task">--</div>
+                    <div class="progress-track">
+                        <div class="progress-fill" style="width:40%"></div>
+                    </div>
+                </div>
+                <div class="obj-block">
+                    <div class="obj-title">NEXT PLAN</div>
+                    <!-- overridden by magi.setPlan() -->
+                    <div class="obj-plan" id="obj-plan">
+                        <span>&gt; --</span>
+                    </div>
+                </div>
+                <div class="obj-block">
+                    <div class="obj-title">ECS INTEGRITY</div>
+                    <!-- overridden by magi.setECSStats() -->
+                    <div class="obj-plan" id="obj-ecs">
+                        <span>&gt; OBJECTS: --</span><br>
+                        <span>&gt; COMPONENTS: --</span><br>
+                        <span>&gt; SYSTEMS: --</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Camera view -->
+        <div id="camera-view">
+            <!-- overlays -->
+            <div class="cam-grid"></div>
+            <div class="scanline"></div>
+            <div class="bracket tl"></div>
+            <div class="bracket tr"></div>
+            <div class="bracket bl"></div>
+            <div class="bracket br"></div>
+
+            <!-- cam status HUD (top-left) -->
+            <div class="cam-status">
+                <div class="cam-status-line">
+                    <span class="status-dot warn"></span>STREAM: STANDBY
+                </div>
+                <div class="cam-status-line" id="cam-res-line" style="display:none">
+                    <span class="status-dot ok"></span>640 × 480
+                </div>
+            </div>
+
+            <!-- actual video element -->
+            <video id="camera-preview" autoplay muted playsinline></video>
+
+            <!-- START STREAM button (hexagon-clipped, visible before streaming) -->
+            <button id="stream-start-btn">&#9654; START STREAM</button>
+
+            <!-- Entity sync badge (visible while streaming) -->
+            <div id="entity-badge">ENTITY SYNC: ACTIVE</div>
+
+        </div><!-- /#camera-view -->
+    </div><!-- /#center-panel -->
+
+
+    <!-- ══════════════════════════════════════
+         BOTTOM: PRIORITY LOG
+         ══════════════════════════════════════ -->
+    <div id="bottom-panel">
+        <div class="slash red"></div>
+        <div class="log-header">
+            <div class="panel-label red">PRIORITY LOG</div>
+            <div class="log-ticker">
+                <div class="log-ticker-inner">
+                    MIME TYPE ERROR: video/mp2t ·· CORS BLOCK: localhost:1420 ·· HAPTIC_SENSOR NOT FOUND ·· MAGI-3 REJECT ·· CROSS-ORIGIN IFRAME BLOCKED ··
+                </div>
+            </div>
+        </div>
+        <div class="log-grid" id="log-grid">
+            <div class="log-entry critical">&gt; MIME ERR: magiSystem.ts — video/mp2t</div>
+            <div class="log-entry critical">&gt; SECURITY: Cross-origin frame [1420]</div>
+            <div class="log-entry warn">&gt; CORS: bg transparent failed</div>
+            <div class="log-entry warn">&gt; GRABBER: HAPTIC_SENSOR — NOT FOUND</div>
+            <div class="log-entry">&gt; MISMATCH: YOLO-DOG-2 DIFF=0.42</div>
+            <div class="log-entry ok">&gt; OBJECT MGR: valid and ready</div>
+        </div>
+    </div>
+
+</div><!-- /#ui-container -->
+
+<!--
+    NOTE: Do NOT load magiSystem.ts directly as a module here.
+    The engine (ExternalSiteManager) injects the compiled bundle via initGame().
+    Only reference the compiled output path used by your build tool, e.g.:
+        <script type="module" src="./dist/app.js"></script>
+    Loading the raw .ts directly caused the video/mp2t MIME error in the console logs.
+-->
 </body>
 </html>

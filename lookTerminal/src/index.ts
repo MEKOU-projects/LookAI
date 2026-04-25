@@ -1,6 +1,11 @@
-import { 
+// ─────────────────────────────────────────────
+//  index.ts  —  Game / Engine Entry Point
+//  Handles: WebRTC, Camera, Detection, ECS sync
+//  UI calls go exclusively through MagiTerminal.
+// ─────────────────────────────────────────────
+
+import {
     IObjectManager,
-    IGameObject,
     WebRTC,
     Camera,
     Transform,
@@ -8,140 +13,209 @@ import {
 
 import { MagiTerminal } from './magiSystem';
 
-
 export const initGame = (objectManager: IObjectManager) => {
-    console.log("📦 Received objectManager:", objectManager);
-    
+    console.log('📦 Received objectManager:', objectManager);
     try {
         const game = new WebTerminal(objectManager);
-        console.log("✅ [initGame] Instance created:", game);
+        console.log('✅ [initGame] Instance created:', game);
         return game;
     } catch (e) {
-        console.error("❌ [initGame] CRASH during construction:", e);
+        console.error('❌ [initGame] CRASH during construction:', e);
         throw e;
     }
 };
 
 export class WebTerminal {
+
     private objectManager: IObjectManager;
-    private webRTC: WebRTC | null = null;
-    private magi: MagiTerminal | null = null;
+    private webRTC:  WebRTC | null = null;
+    private magi:   MagiTerminal;
 
     constructor(objectManager: IObjectManager) {
-        this.magi = new MagiTerminal();
         this.objectManager = objectManager;
-        if(this.objectManager && typeof this.objectManager.createGameObject === 'function') {
-            console.log("object_manager...is valid:");
-        }
-        this.initializeWebRTC();
-        this.CameraInit();
+        this.magi = new MagiTerminal();
+
+        // ── Initial UI state (all "--" until system injects real data) ──
+        this.magi.setSyncRatio(0);
+        this.magi.setObjective('INITIALIZING...', 0);
+        this.magi.setPlan([{ text: 'WAITING FOR ENGINE', level: 'warn' }]);
+        this.magi.setECSStats(0, 0, false);
+        this.magi.setNodeStatus('object-mgr', 'active',
+            `CREATE / FIND: OK\nINSTANCES: ${objectManager ? '1' : '0'}`);
+
+        // Wire up the START STREAM button in the UI
+        const btn = document.getElementById('stream-start-btn');
+        if (btn) btn.addEventListener('click', () => this._startCamera());
+
+        this._initWebRTC();
     }
 
-    private async initializeWebRTC() {
-        const network_system = this.objectManager.createGameObject("network_system");
+    // ══════════════════════════════════════════
+    //  WebRTC
+    // ══════════════════════════════════════════
 
-        if (network_system) {
-            try {
-                // 固定ロードにしたので、直接 addComponent を呼ぶだけでOK
-                // 内部で ComponentRegistry.getRegisteredClass("WebRTC") が走り、即座に実体が返る
-                this.webRTC = network_system.getComponent<WebRTC>("WebRTC") ||
-                              network_system.addComponent<WebRTC>("WebRTC");
+    private async _initWebRTC(): Promise<void> {
+        const netObj = this.objectManager.createGameObject('network_system');
+        if (!netObj) return;
 
-                if (this.webRTC) {
-                    console.log("✅ WebRTC component linked via Static Registry");
-                    await this.webRTC.connect();
-                    console.log("📡 WebRTC connect processing started");
-                }
-            } catch (e) {
-                console.error("❌ Failed to setup WebRTC component:", e);
+        try {
+            this.webRTC =
+                netObj.getComponent<WebRTC>('WebRTC') ||
+                netObj.addComponent<WebRTC>('WebRTC');
+
+            if (this.webRTC) {
+                this.magi.setNodeStatus('network', 'active', 'WS-BRIDGE: INIT\nCONNECTING...');
+                this.magi.postLog('WebRTC: connect() called', 'ok');
+
+                await this.webRTC.connect();
+
+                this.magi.setNodeStatus('network', 'active', 'WS-BRIDGE: LINKED\nLATENCY: ~12ms');
+                this.magi.setNodeStatus('webrtc',  'active', 'CONNECTED\nSTREAMING: LIVE');
+                this.magi.postLog('WebRTC: connected', 'ok');
+                console.log('✅ WebRTC component linked');
             }
+        } catch (e: any) {
+            this.magi.setNodeStatus('webrtc', 'err', `CONNECT: FAIL\n${String(e).slice(0, 24)}`);
+            this.magi.postLog(`WebRTC ERROR: ${e?.message ?? e}`, 'critical');
+            console.error('❌ Failed to setup WebRTC:', e);
         }
     }
 
-    private async CameraInit() {
-        const cameraObject = this.objectManager.createGameObject("camera");
-        const cameraComponent = cameraObject.addComponent<Camera>("Camera");
-        const stream = await cameraComponent.getStream();
+    // ══════════════════════════════════════════
+    //  Camera  (triggered by START button)
+    // ══════════════════════════════════════════
 
-        if (stream) {
-            const mainVideo = document.getElementById('camera-preview') as HTMLVideoElement;
-            if (mainVideo) {
-                mainVideo.srcObject = stream;
-                // 明示的に待機して再生
-                try {
-                    await mainVideo.play();
-                    console.log("🎬 Viewport camera playing");
-                } catch (e) {
-                    console.warn("Playback failed:", e);
-                }
-            }
-        }
-    }
+    private async _startCamera(): Promise<void> {
+        this.magi.setNodeStatus('camera', 'warn', 'REQUESTING...\nPENDING');
+        this.magi.postLog('Camera: requesting access...', 'warn');
 
-    /**
-     * エンジンのメインループから毎フレーム呼ばれる
-     */
-    public update = (dt: number): void => {
-    if (this.webRTC) {
-        // isStreaming() は addStream が一度呼ばれたら true を返すように WebRTCManager 側で実装が必要
-        if (!this.webRTC.isStreaming()) { 
-            const camObj = this.objectManager.findGameObject("camera");
-            const camera = camObj?.getComponent<Camera>("Camera");
-            const stream = camera?.getStream();
-            
+        try {
+            const camObj = this.objectManager.createGameObject('camera');
+            const camera = camObj.addComponent<Camera>('Camera');
+
+            // getStream() returns Promise<MediaStream> or MediaStream
+            const stream = await camera.getStream();
+
             if (stream) {
-                console.log("🚀 [ONCE] Passing stream to WebRTC");
-                this.webRTC.addStream(stream); 
-                // ★重要: ここで WebRTCManager 内の is_streaming を true に変えること
-            }
-        }
+                // Hand stream to the video element via MagiTerminal
+                this.magi.attachCameraStream(stream);
+                this.magi.setStreamingState(true);
+                this.magi.setNodeStatus('camera',    'active', 'STREAM: ACTIVE\n640 × 480');
+                this.magi.setNodeStatus('detection', 'active', 'YOLO: RUNNING\nENTITY SYNC: ON');
+                this.magi.postLog('Camera: stream active 640×480', 'ok');
+                this.magi.setSyncRatio(62.4); // initial sync boost
+                this.magi.setMagiVerdicts(['agree', 'agree', 'agree']);
 
-            // データ受信
-            if (this.webRTC.isConnected()) {
-                const data = this.webRTC.receiveData();
-                if (data) {
-                    this.handleData(data);
+                // Pass stream to WebRTC if already connected
+                if (this.webRTC && !this.webRTC.isStreaming()) {
+                    this.webRTC.addStream(stream);
+                    this.magi.postLog('WebRTC: stream attached', 'ok');
                 }
             }
+        } catch (e: any) {
+            this.magi.setNodeStatus('camera', 'err', 'ACCESS: DENIED\nCHECK BROWSER');
+            this.magi.postLog(`Camera ERROR: ${e?.message ?? e}`, 'critical');
+            this.magi.setMagiVerdicts(['agree', 'reject', 'reject']);
+            console.error('❌ Camera failed:', e);
         }
     }
 
-        private handleData(data: any) {
-            // Rust側で type: "detection" として送っている前提
-            if (data.type === "detection") {
-                // payload: "DETECTED:{\"label\": \"cat\", ...}" をパース
-                const rawJson = data.payload.replace("DETECTED:", "");
-                const detection = JSON.parse(rawJson);
+    // ══════════════════════════════════════════
+    //  Main loop  (called every frame by engine)
+    // ══════════════════════════════════════════
 
-                const { label, entity_id, bbox } = detection;
+    public update = (_dt: number): void => {
+        if (!this.webRTC) return;
 
-                // 1. すでに存在する個体か確認
-                let obj = this.objectManager.findGameObject(entity_id);
-
-                if (!obj) {
-                    // 2. 新規個体なら実体化（ここが createGameObject）
-                    obj = this.objectManager.createGameObject(entity_id);
-                    console.log(`🎯 Entity Synchronized: ${label} [${entity_id}]`);
-                    
-                    // 必要なら識別用のコンポーネントを付ける
-                    // obj.addComponent("Tag").setLabel(label);
-                }
-
-                // 3. 位置の同期 (bbox: [x, y, w, h])
-                // YOLOのピクセル座標を正規化してTransformにセット
-                // ※とりあえず Z=-2 (目の前) で X, Y を画面比率に合わせる
-                const x = (bbox[0] / 640) * 2 - 1; // -1.0 ~ 1.0 に変換
-                const y = -((bbox[1] / 480) * 2 - 1); 
-                
-                const transform = obj.getComponent<Transform>("Transform");
-                if (transform && transform.position) {
-                    // 値をセット
-                    if (transform && transform.position) {
-                        transform.position.x = x;
-                        transform.position.y = y;   
-                        transform.position.z = -2.0;
-                    }
-                }
+        // Pass camera stream to WebRTC once (idempotent — webRTC guards internally)
+        if (!this.webRTC.isStreaming()) {
+            const camObj = this.objectManager.findGameObject('camera');
+            const camera = camObj?.getComponent<Camera>('Camera');
+            const stream = camera?.getStream();
+            if (stream) {
+                this.webRTC.addStream(stream as MediaStream);
             }
         }
+
+        // Receive and handle data from Rust/backend
+        if (this.webRTC.isConnected()) {
+            const data = this.webRTC.receiveData();
+            if (data) this._handleData(data);
+        }
+    };
+
+    // ══════════════════════════════════════════
+    //  Data Handler  (detection payloads)
+    // ══════════════════════════════════════════
+
+    private _entityCount = 0;
+
+    private _handleData(data: any): void {
+        if (data.type !== 'detection') return;
+
+        let detection: { label: string; entity_id: string; bbox: [number, number, number, number]; confidence?: number };
+        try {
+            const rawJson = data.payload.replace('DETECTED:', '');
+            detection = JSON.parse(rawJson);
+        } catch (e) {
+            this.magi.postLog('PARSE ERR: malformed detection payload', 'critical');
+            this.magi.setMagiVerdicts(['agree', 'agree', 'reject']);
+            return;
+        }
+
+        const { label, entity_id, bbox, confidence } = detection;
+
+        // ── ECS: find or create entity object ──
+        let obj = this.objectManager.findGameObject(entity_id);
+        if (!obj) {
+            obj = this.objectManager.createGameObject(entity_id);
+            this._entityCount++;
+            this.magi.postLog(`Entity sync: ${label} [${entity_id}]`, 'ok');
+            this.magi.setNodeStatus('detection', 'active',
+                `YOLO: RUNNING\nENTITIES: ${this._entityCount}`);
+        }
+
+        // ── Transform sync ──
+        // Convert YOLO pixel coords (640×480) → normalised –1..1
+        const nx = (bbox[0] / 640) * 2 - 1;
+        const ny = -((bbox[1] / 480) * 2 - 1);
+
+        const transform = obj.getComponent<Transform>('Transform');
+        if (transform?.position) {
+            transform.position.x = nx;
+            transform.position.y = ny;
+            transform.position.z = -2.0;
+        }
+
+        // ── Render bbox in MagiTerminal ──
+        // Convert pixel bbox → normalised (0..1) for camera-view overlay
+        this.magi.renderDetection(label, entity_id, [
+            bbox[0] / 640,
+            bbox[1] / 480,
+            bbox[2] / 640,
+            bbox[3] / 480,
+        ]);
+
+        // ── Confidence → sync ratio ──
+        if (confidence !== undefined) {
+            const newSync = 40 + confidence * 60; // map 0..1 → 40..100
+            this.magi.setSyncRatio(newSync);
+
+            // MAGI votes based on confidence threshold
+            const agree: 'agree' | 'reject' = confidence > 0.5 ? 'agree' : 'reject';
+            const magi3: 'agree' | 'reject' = confidence > 0.7 ? 'agree' : 'reject';
+            this.magi.setMagiVerdicts(['agree', agree, magi3]);
+
+            if (confidence < 0.5) {
+                this.magi.postLog(
+                    `MISMATCH: ${label} DIFF=${(1 - confidence).toFixed(2)}`,
+                    'warn'
+                );
+            }
+        }
+
+        // ── ECS stats update ──
+        const allObjs = this._entityCount + 2; // +camera +network
+        this.magi.setECSStats(allObjs, allObjs * 2 + 1, true);
+    }
 }
