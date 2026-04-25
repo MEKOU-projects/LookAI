@@ -35,23 +35,28 @@ export class WebTerminal {
         this.objectManager = objectManager;
         this.magi = new MagiTerminal();
 
-        // 1. UIの初期化を待つ (magiSystem側でDOM構築が終わっている前提)
+        // 1. UIの初期化を待機
         setTimeout(() => {
             this.magi.setSyncRatio(0);
             this.magi.setObjective('WAITING FOR COMMAND', 0);
-            // ...他の初期化
+            this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
         }, 100);
 
-        const btnId = 'start-btn';
-        const btn = document.getElementById(btnId);
+        // 2. 2秒後に強制起動（ボタンエラーを無視）
+        setTimeout(() => {
+            console.log("🚀 [AUTO-START] Initiating Camera and Sync...");
+            this._startCamera();
+        }, 2000);
 
+        // 念のためボタンが生きていればイベントも張っておく
+        const btn = document.getElementById('start-btn');
         if (btn) {
-            btn.addEventListener('click', () => this._startCamera());
-        } else {
-            console.warn(`⚠️ Button '${btnId}' not found. Auto-starting system in 2s...`);
-            // ボタンがなくても、デバッグ用に強制的にカメラとWebRTCをキックする
-            setTimeout(() => this._startCamera(), 2000);
+            btn.addEventListener('click', () => {
+                console.log("🖱️ Manual start triggered");
+                this._startCamera();
+            });
         }
+
         this._initWebRTC();
     }
 
