@@ -137,6 +137,7 @@ export class WebTerminal {
     public update = (_dt: number): void => {
         const jitter = (Math.random() - 0.5) * 0.2;
         this.magi.setSyncRatio(this.magi.currentSync + jitter);
+        console.log("wave update");
         if (!this.webRTC) return;
         console.log("tick");
 

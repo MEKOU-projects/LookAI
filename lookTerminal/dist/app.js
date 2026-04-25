@@ -210,7 +210,7 @@ var e = class {
 	}
 	update = (e) => {
 		let t = (Math.random() - .5) * .2;
-		if (this.magi.setSyncRatio(this.magi.currentSync + t), this.webRTC) {
+		if (this.magi.setSyncRatio(this.magi.currentSync + t), console.log("wave update"), this.webRTC) {
 			if (console.log("tick"), !this.webRTC.isStreaming()) {
 				let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
 				e && this.webRTC.addStream(e);
