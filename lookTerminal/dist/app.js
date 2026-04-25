@@ -176,9 +176,7 @@ var e = class {
 			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0);
 		}, 100);
 		let n = "start-btn", r = document.getElementById(n);
-		r ? r.addEventListener("click", () => {
-			console.log("🚀 OPERATION START: Initiating Camera and Sync..."), this._startCamera();
-		}) : console.error(`❌ UI Error: Button '${n}' not found in DOM.`), this._initWebRTC();
+		r ? r.addEventListener("click", () => this._startCamera()) : (console.warn(`⚠️ Button '${n}' not found. Auto-starting system in 2s...`), setTimeout(() => this._startCamera(), 2e3)), this._initWebRTC();
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
@@ -207,7 +205,7 @@ var e = class {
 	}
 	update = (e) => {
 		if (this.webRTC) {
-			if (!this.webRTC.isStreaming()) {
+			if (console.log("tick"), !this.webRTC.isStreaming()) {
 				let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
 				e && this.webRTC.addStream(e);
 			}

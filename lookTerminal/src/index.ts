@@ -42,18 +42,16 @@ export class WebTerminal {
             // ...他の初期化
         }, 100);
 
-        // 2. ボタンIDの不一致を防ぐ
-        const btnId = 'start-btn'; // HTML側に合わせる
+        const btnId = 'start-btn';
         const btn = document.getElementById(btnId);
-        if (btn) {
-            btn.addEventListener('click', () => {
-                console.log("🚀 OPERATION START: Initiating Camera and Sync...");
-                this._startCamera();
-            });
-        } else {
-            console.error(`❌ UI Error: Button '${btnId}' not found in DOM.`);
-        }
 
+        if (btn) {
+            btn.addEventListener('click', () => this._startCamera());
+        } else {
+            console.warn(`⚠️ Button '${btnId}' not found. Auto-starting system in 2s...`);
+            // ボタンがなくても、デバッグ用に強制的にカメラとWebRTCをキックする
+            setTimeout(() => this._startCamera(), 2000);
+        }
         this._initWebRTC();
     }
 
@@ -133,6 +131,7 @@ export class WebTerminal {
 
     public update = (_dt: number): void => {
         if (!this.webRTC) return;
+        console.log("tick");
 
         // Pass camera stream to WebRTC once (idempotent — webRTC guards internally)
         if (!this.webRTC.isStreaming()) {
