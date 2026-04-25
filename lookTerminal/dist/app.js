@@ -173,10 +173,14 @@ var e = class {
 	magi;
 	constructor(t) {
 		this.objectManager = t, this.magi = new e(), setTimeout(() => {
-			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0);
-		}, 100);
-		let n = "start-btn", r = document.getElementById(n);
-		r ? r.addEventListener("click", () => this._startCamera()) : (console.warn(`⚠️ Button '${n}' not found. Auto-starting system in 2s...`), setTimeout(() => this._startCamera(), 2e3)), this._initWebRTC();
+			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING...");
+		}, 100), setTimeout(() => {
+			console.log("🚀 [AUTO-START] Initiating Camera and Sync..."), this._startCamera();
+		}, 2e3);
+		let n = document.getElementById("start-btn");
+		n && n.addEventListener("click", () => {
+			console.log("🖱️ Manual start triggered"), this._startCamera();
+		}), this._initWebRTC();
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
@@ -211,7 +215,7 @@ var e = class {
 			}
 			if (this.webRTC.isConnected()) {
 				let e;
-				for (; (e = this.webRTC.receiveData()) !== null;) this._handleData(e);
+				for (; (e = this.webRTC.receiveData()) !== null;) console.log("📦 Received from Rust:", e), this._handleData(e);
 			}
 		}
 	};

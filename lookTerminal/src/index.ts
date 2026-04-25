@@ -153,6 +153,7 @@ export class WebTerminal {
             // 溜まっているデータを全て処理するまでループ
             let data;
             while ((data = this.webRTC.receiveData()) !== null) {
+                console.log("📦 Received from Rust:", data);
                 this._handleData(data);
             }
         }
