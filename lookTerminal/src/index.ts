@@ -32,13 +32,13 @@ export class WebTerminal {
     private magi:   MagiTerminal;
     private _lastConfidenceSync: number | null = null;
 
-        constructor(objectManager: IObjectManager) {
-        this.objectManager = objectManager;
-        this.magi = new MagiTerminal();
 
-        // ── 1. UIの初期化待機（リトライロジック付き） ──
-            const tryBoot = () => {
-        // HTML上のCanvasを探す
+        constructor(objectManager: IObjectManager) {
+    this.objectManager = objectManager;
+    this.magi = new MagiTerminal();
+
+    // ── 1. UIの初期化待機（リトライロジック付き） ──
+    const tryBoot = () => {
         const canvas = document.getElementById('sync-canvas');
         if (canvas) {
             // 見つかったらMagi側の初期化を完了させる
@@ -47,9 +47,12 @@ export class WebTerminal {
             this.magi.setSyncRatio(0);
             this.magi.setObjective('WAITING FOR COMMAND', 0);
             this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
+            console.log("✅ [WebTerminal] UI Bootstrapped.");
         } else {
-            // まだなければ100ms待って再試行
-            setTimeout(tryBoot, 100);
+            // 修正ポイント: 'this.tryBoot' ではなく 'tryBoot' を呼ぶ
+            // また、念のためログを出して追跡できるようにする
+            console.log("⏳ [WebTerminal] Waiting for Canvas...");
+            setTimeout(tryBoot, 100); 
         }
     };
     tryBoot();
