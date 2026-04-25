@@ -201,7 +201,7 @@ var c = class {
 		try {
 			let t = JSON.parse(n);
 			if (!t.js) return;
-			let r = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocolMain");
+			let r = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocol");
 			if (r) {
 				let n = JSON.stringify(this.getMetaInterface()), i = r.inspection(t.js, n);
 				if (i.length === 0) this.magi.setObjective(t.tasks?.now || "RELEASED", 100, 4, "done"), this.executeJS(t.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");

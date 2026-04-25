@@ -120,7 +120,7 @@ export class WebTerminal {
             // 1. MetaProtocolMain コンポーネントを network_system 等から取得
             // (予め addComponent しておく必要があります)
             const netObj = this.objectManager.findGameObject('network_system');
-            const inspector = netObj?.getComponent<any>('MetaProtocolMain');
+            const inspector = netObj?.getComponent<MetaProtocol>('MetaProtocol');
 
             if (inspector) {
                 // 2. 検閲（inspection）の実行
