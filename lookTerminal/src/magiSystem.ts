@@ -192,17 +192,26 @@ export class MagiTerminal {
         );
     }
 
-    public boot(): void {
-        // すでに取得済みなら何もしない
+    public boot(externalCanvas?: HTMLCanvasElement): void {
+        // すでに取得済みなら二重起動防止
         if (this.canvas && this.ctx) return;
 
-        this._initCanvas();
+        // 引数があればそれを使用し、なければ自分のドキュメント内を探す
+        this.canvas = externalCanvas || (document.getElementById('sync-canvas') as HTMLCanvasElement | null);
         
-        // Canvasが見つかった場合のみ、描画ループと時計を開始する
-        if (this.canvas && this.ctx) {
+        if (this.canvas) {
+            this.ctx = this.canvas.getContext('2d');
+            
+            // リサイズイベントの登録（Canvasが存在するウィンドウに対して行う）
+            const targetWindow = externalCanvas ? window.parent : window;
+            targetWindow.addEventListener('resize', () => this._resizeCanvas());
+            
+            this._resizeCanvas();
             this._startWave();
             this._startClock();
             console.log("✅ [MagiTerminal] Wave system booted successfully.");
+        } else {
+            console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found.");
         }
     }
 

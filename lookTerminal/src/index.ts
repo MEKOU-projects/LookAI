@@ -40,19 +40,21 @@ export class WebTerminal {
     // ── 1. UIの初期化待機 ──
     // アロー関数を変数に代入し、再帰的に呼び出せるようにする
     const mountUI = () => {
-        const canvas = document.getElementById('sync-canvas');
+        // 1. 自身のドキュメントから探す
+        // 2. もし見つからず、自分が iframe なら親のドキュメントから探す
+        const canvas = document.getElementById('sync-canvas') || 
+                    (window.parent !== window ? window.parent.document.getElementById('sync-canvas') : null);
+
         if (canvas) {
-            // キャンバスが見つかった場合のみbootを実行
-            this.magi.boot(); 
+            // 見つかった Canvas を明示的に boot に渡すように MagiSystem 側も調整が必要
+            this.magi.boot(canvas as HTMLCanvasElement); 
             
             this.magi.setSyncRatio(0);
             this.magi.setObjective('WAITING FOR COMMAND', 0);
             this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
-            console.log("✅ [WebTerminal] UI Bootstrapped.");
+            console.log("✅ [WebTerminal] UI Bootstrapped (Cross-context).");
         } else {
-            // 見つからない場合は100ms後に自分を再実行
-            // ログを出してループしているか確認できるようにする
-            console.log("⏳ [WebTerminal] Searching for #sync-canvas...");
+            console.log("⏳ [WebTerminal] Searching across contexts for #sync-canvas...");
             setTimeout(mountUI, 100); 
         }
     };

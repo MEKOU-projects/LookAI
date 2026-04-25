@@ -57,8 +57,8 @@ var e = class {
 		let t = document.getElementById("stream-start-btn"), n = document.getElementById("entity-badge");
 		t && (t.style.display = e ? "none" : "block"), n && (n.style.display = e ? "block" : "none"), this.setNodeStatus("camera", e ? "active" : "warn", e ? "STREAM: ACTIVE\n640 × 480" : "STREAM: STOPPED\nAWAITING");
 	}
-	boot() {
-		this.canvas && this.ctx || (this._initCanvas(), this.canvas && this.ctx && (this._startWave(), this._startClock(), console.log("✅ [MagiTerminal] Wave system booted successfully.")));
+	boot(e) {
+		this.canvas && this.ctx || (this.canvas = e || document.getElementById("sync-canvas"), this.canvas ? (this.ctx = this.canvas.getContext("2d"), (e ? window.parent : window).addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas(), this._startWave(), this._startClock(), console.log("✅ [MagiTerminal] Wave system booted successfully.")) : console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found."));
 	}
 	attachCameraStream(e) {
 		let t = document.getElementById("camera-preview");
@@ -177,7 +177,8 @@ var e = class {
 	constructor(t) {
 		this.objectManager = t, this.magi = new e();
 		let n = () => {
-			document.getElementById("sync-canvas") ? (this.magi.boot(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING..."), console.log("✅ [WebTerminal] UI Bootstrapped.")) : (console.log("⏳ [WebTerminal] Searching for #sync-canvas..."), setTimeout(n, 100));
+			let e = document.getElementById("sync-canvas") || (window.parent === window ? null : window.parent.document.getElementById("sync-canvas"));
+			e ? (this.magi.boot(e), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING..."), console.log("✅ [WebTerminal] UI Bootstrapped (Cross-context).")) : (console.log("⏳ [WebTerminal] Searching across contexts for #sync-canvas..."), setTimeout(n, 100));
 		};
 		n(), setTimeout(() => {
 			console.log("🚀 [AUTO-START] Initiating Camera..."), this._startCamera();
