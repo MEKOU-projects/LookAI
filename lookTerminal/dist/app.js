@@ -57,6 +57,9 @@ var e = class {
 		let t = document.getElementById("stream-start-btn"), n = document.getElementById("entity-badge");
 		t && (t.style.display = e ? "none" : "block"), n && (n.style.display = e ? "block" : "none"), this.setNodeStatus("camera", e ? "active" : "warn", e ? "STREAM: ACTIVE\n640 × 480" : "STREAM: STOPPED\nAWAITING");
 	}
+	boot() {
+		this.canvas && this.ctx || (this._initCanvas(), this.canvas && this.ctx && (this._startWave(), this._startClock(), console.log("✅ [MagiTerminal] Wave system booted successfully.")));
+	}
 	attachCameraStream(e) {
 		let t = document.getElementById("camera-preview");
 		t && (t.srcObject = e, t.play().catch((e) => console.warn("[MagiTerminal] video.play():", e)));
@@ -172,15 +175,15 @@ var e = class {
 	magi;
 	_lastConfidenceSync = null;
 	constructor(t) {
-		this.objectManager = t, this.magi = new e(), setTimeout(() => {
-			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING...");
-		}, 100), setTimeout(() => {
-			console.log("🚀 [AUTO-START] Initiating Camera and Sync..."), this._startCamera();
+		this.objectManager = t, this.magi = new e();
+		let n = () => {
+			document.getElementById("sync-canvas") ? (this.magi.boot(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING...")) : setTimeout(n, 100);
+		};
+		n(), setTimeout(() => {
+			console.log("🚀 [AUTO-START] Initiating Camera..."), this._startCamera();
 		}, 2e3);
-		let n = document.getElementById("start-btn");
-		n && n.addEventListener("click", () => {
-			console.log("🖱️ Manual start triggered"), this._startCamera();
-		}), this._initWebRTC();
+		let r = document.getElementById("stream-start-btn");
+		r && r.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal initialized");
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");

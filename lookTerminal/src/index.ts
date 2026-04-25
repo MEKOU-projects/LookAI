@@ -32,33 +32,42 @@ export class WebTerminal {
     private magi:   MagiTerminal;
     private _lastConfidenceSync: number | null = null;
 
-    constructor(objectManager: IObjectManager) {
+        constructor(objectManager: IObjectManager) {
         this.objectManager = objectManager;
         this.magi = new MagiTerminal();
 
-        // 1. UIの初期化を待機
-        setTimeout(() => {
+        // ── 1. UIの初期化待機（リトライロジック付き） ──
+            const tryBoot = () => {
+        // HTML上のCanvasを探す
+        const canvas = document.getElementById('sync-canvas');
+        if (canvas) {
+            // 見つかったらMagi側の初期化を完了させる
+            this.magi.boot(); 
+            
             this.magi.setSyncRatio(0);
             this.magi.setObjective('WAITING FOR COMMAND', 0);
             this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
-        }, 100);
+        } else {
+            // まだなければ100ms待って再試行
+            setTimeout(tryBoot, 100);
+        }
+    };
+    tryBoot();
 
-        // 2. 2秒後に強制起動（ボタンエラーを無視）
+        // ── 2. 自動起動 ──
         setTimeout(() => {
-            console.log("🚀 [AUTO-START] Initiating Camera and Sync...");
+            console.log("🚀 [AUTO-START] Initiating Camera...");
             this._startCamera();
         }, 2000);
 
-        // 念のためボタンが生きていればイベントも張っておく
-        const btn = document.getElementById('start-btn');
+        // ボタンのイベントリスナー（IDをHTMLと合わせる: stream-start-btn）
+        const btn = document.getElementById('stream-start-btn');
         if (btn) {
-            btn.addEventListener('click', () => {
-                console.log("🖱️ Manual start triggered");
-                this._startCamera();
-            });
+            btn.addEventListener('click', () => this._startCamera());
         }
 
         this._initWebRTC();
+        console.log('✅ WebTerminal initialized');
     }
 
     // ══════════════════════════════════════════

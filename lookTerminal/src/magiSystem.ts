@@ -192,6 +192,20 @@ export class MagiTerminal {
         );
     }
 
+    public boot(): void {
+        // すでに取得済みなら何もしない
+        if (this.canvas && this.ctx) return;
+
+        this._initCanvas();
+        
+        // Canvasが見つかった場合のみ、描画ループと時計を開始する
+        if (this.canvas && this.ctx) {
+            this._startWave();
+            this._startClock();
+            console.log("✅ [MagiTerminal] Wave system booted successfully.");
+        }
+    }
+
     /**
      * Attach the camera MediaStream to the video element.
      */
