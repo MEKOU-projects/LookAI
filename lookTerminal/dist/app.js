@@ -210,8 +210,8 @@ var e = class {
 				e && this.webRTC.addStream(e);
 			}
 			if (this.webRTC.isConnected()) {
-				let e = this.webRTC.receiveData();
-				e && this._handleData(e);
+				let e;
+				for (; (e = this.webRTC.receiveData()) !== null;) this._handleData(e);
 			}
 		}
 	};
