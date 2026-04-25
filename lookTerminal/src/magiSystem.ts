@@ -28,9 +28,30 @@ export class MagiTerminal {
     private tickerMessages: string[] = [];
 
     constructor() {
-        this._initCanvas();
+        // _startWave() はループを先に回し始める。canvas は後から boot() か
+        // _tryInitCanvas() で注入される。draw() 内で毎フレーム this.canvas を
+        // チェックするので、注入後の次フレームから自動的に描画が始まる。
         this._startWave();
         this._startClock();
+
+        // 非 iframe 環境 (DOM が既にある場合) の fallback
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => this._tryInitCanvas());
+        } else {
+            this._tryInitCanvas();
+        }
+    }
+
+    /** iframe に注入される前に自力で canvas が取れた場合の fallback */
+    private _tryInitCanvas(): void {
+        if (this.canvas) return;
+        const c = document.getElementById('sync-canvas') as HTMLCanvasElement | null;
+        if (c) {
+            this.canvas = c;
+            this.ctx    = c.getContext('2d');
+            window.addEventListener('resize', () => this._resizeCanvas());
+            this._resizeCanvas();
+        }
     }
 
     // ══════════════════════════════════════════
@@ -193,23 +214,17 @@ export class MagiTerminal {
     }
 
     public boot(externalCanvas?: HTMLCanvasElement): void {
-        // すでに取得済みなら二重起動防止
+        // 二重起動防止
         if (this.canvas && this.ctx) return;
 
-        // 引数があればそれを使用し、なければ自分のドキュメント内を探す
+        // 引数があればそれを優先、なければ自身の document から探す
         this.canvas = externalCanvas || (document.getElementById('sync-canvas') as HTMLCanvasElement | null);
-        
+
         if (this.canvas) {
             this.ctx = this.canvas.getContext('2d');
-            
-            // リサイズイベントの登録（Canvasが存在するウィンドウに対して行う）
-            const targetWindow = externalCanvas ? window.parent : window;
-            targetWindow.addEventListener('resize', () => this._resizeCanvas());
-            
+            window.addEventListener('resize', () => this._resizeCanvas());
             this._resizeCanvas();
-            this._startWave();
-            this._startClock();
-            console.log("✅ [MagiTerminal] Wave system booted successfully.");
+            console.log('✅ [MagiTerminal] Canvas acquired via boot(). Wave loop will pick it up next frame.');
         } else {
             console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found.");
         }
@@ -274,13 +289,7 @@ export class MagiTerminal {
     //  PRIVATE INTERNALS
     // ══════════════════════════════════════════
 
-    private _initCanvas(): void {
-        this.canvas = document.getElementById('sync-canvas') as HTMLCanvasElement | null;
-        if (!this.canvas) return;
-        this.ctx = this.canvas.getContext('2d');
-        window.addEventListener('resize', () => this._resizeCanvas());
-        this._resizeCanvas();
-    }
+    // _initCanvas() removed — replaced by _tryInitCanvas() + boot()
 
     private _resizeCanvas(): void {
         if (!this.canvas) return;
@@ -289,90 +298,85 @@ export class MagiTerminal {
     }
 
     private _startWave(): void {
-    // 1. メソッド内のローカル変数に退避させる（クロージャ用）
-    const canvas = this.canvas;
-    const ctx = this.ctx;
-    if (!canvas || !ctx) {
-        console.error("MagiTerminal: Canvas or Context not found.");
-        return;
-    }
+        // canvas/ctx はフレームごとに this から読む。
+        // boot() が後から canvas を注入しても、次フレームから自動的に描画が始まる。
+        const WIRE_COLORS = [
+            { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)' },
+            { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)' },
+            { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)' },
+        ];
+        const MESH_STEP = 6;
 
-    const WIRE_COLORS = [
-        { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)' },
-        { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)' },
-        { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)' },
-    ];
-    const MESH_STEP = 6;
-
-    // 2. アロー関数を使うことで 'this' を MagiTerminal インスタンスに固定
-    const draw = () => {
-        const W = canvas.width;
-        const H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
-
-        // クラスのプロパティから同期率を取得
-        const drift = Math.max(0, (100 - this.syncValue) / 100);
-
-        const amp = drift * 35;
-        const band = 1 + drift * 8;
-        const phaseShift = drift * 3.0;
-
-        WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
-            const phase = i * phaseShift;
-            
-            // 描画用の座標計算
-            ctx.beginPath();
-            ctx.globalCompositeOperation = 'screen';
-
-            // エッジを描画しながら座標を保持（centres配列を毎回作らない）
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth = 0.8 + (1 - drift) * 0.7;
-            
-            // Upper Edge & Calculate centers
-            const centersX: number[] = [];
-            ctx.beginPath();
-            for (let x = 0; x < W; x++) {
-                const cy = H / 2 + Math.sin(x * 0.02 + this.animT + phase) * amp;
-                centersX[x] = cy; // あとでメッシュとスパインに使う
-                const y = cy - band;
-                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        const draw = () => {
+            // canvas が未取得ならスキップして次フレームへ（busy-waitしない）
+            const canvas = this.canvas;
+            const ctx    = this.ctx;
+            if (!canvas || !ctx || canvas.width === 0) {
+                // canvas がまだない場合は tryInit を試みながら待つ
+                this._tryInitCanvas();
+                requestAnimationFrame(draw);
+                return;
             }
-            ctx.stroke();
 
-            // Lower Edge
-            ctx.beginPath();
-            for (let x = 0; x < W; x++) {
-                const y = centersX[x] + band;
-                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-            }
-            ctx.stroke();
+            const W = canvas.width;
+            const H = canvas.height;
+            ctx.clearRect(0, 0, W, H);
 
-            // Mesh (垂直線)
-            ctx.strokeStyle = mesh;
-            ctx.lineWidth = 1;
-            for (let x = 0; x < W; x += MESH_STEP) {
+            const drift       = Math.max(0, (100 - this.syncValue) / 100);
+            const amp         = drift * 35;
+            const band        = 1 + drift * 8;
+            const phaseShift  = drift * 3.0;
+
+            WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
+                const phase = i * phaseShift;
+
+                ctx.globalCompositeOperation = 'screen';
+                ctx.strokeStyle = stroke;
+                ctx.lineWidth   = 0.8 + (1 - drift) * 0.7;
+
+                // Upper edge + collect centres
+                const centersX: number[] = [];
                 ctx.beginPath();
-                ctx.moveTo(x, centersX[x] - band);
-                ctx.lineTo(x, centersX[x] + band);
+                for (let x = 0; x < W; x++) {
+                    const cy = H / 2 + Math.sin(x * 0.02 + this.animT + phase) * amp;
+                    centersX[x] = cy;
+                    x === 0 ? ctx.moveTo(x, cy - band) : ctx.lineTo(x, cy - band);
+                }
                 ctx.stroke();
-            }
 
-            // Spine (中央線)
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + (1 - drift) * 0.4})`;
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            for (let x = 0; x < W; x++) {
-                x === 0 ? ctx.moveTo(x, centersX[x]) : ctx.lineTo(x, centersX[x]);
-            }
-            ctx.stroke();
-        });
+                // Lower edge
+                ctx.beginPath();
+                for (let x = 0; x < W; x++) {
+                    x === 0 ? ctx.moveTo(x, centersX[x] + band) : ctx.lineTo(x, centersX[x] + band);
+                }
+                ctx.stroke();
 
-        this.animT += 0.03 + (1 - drift) * 0.02;
-        requestAnimationFrame(draw);
-    };
+                // Vertical mesh
+                ctx.strokeStyle = mesh;
+                ctx.lineWidth   = 1;
+                for (let x = 0; x < W; x += MESH_STEP) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, centersX[x] - band);
+                    ctx.lineTo(x, centersX[x] + band);
+                    ctx.stroke();
+                }
 
-    draw();
-}
+                // Centre spine
+                ctx.strokeStyle = `rgba(255,255,255,${0.3 + (1 - drift) * 0.4})`;
+                ctx.lineWidth   = 0.5;
+                ctx.beginPath();
+                for (let x = 0; x < W; x++) {
+                    x === 0 ? ctx.moveTo(x, centersX[x]) : ctx.lineTo(x, centersX[x]);
+                }
+                ctx.stroke();
+            });
+
+            this.animT += 0.03 + (1 - drift) * 0.02;
+            requestAnimationFrame(draw);
+        };
+
+        draw();
+    }
 
     private _updateSyncBars(): void {
         const container = document.getElementById('sync-bars');

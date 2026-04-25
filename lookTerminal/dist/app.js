@@ -7,7 +7,12 @@ var e = class {
 	currentSync = 0;
 	tickerMessages = [];
 	constructor() {
-		this._initCanvas(), this._startWave(), this._startClock();
+		this._startWave(), this._startClock(), document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", () => this._tryInitCanvas()) : this._tryInitCanvas();
+	}
+	_tryInitCanvas() {
+		if (this.canvas) return;
+		let e = document.getElementById("sync-canvas");
+		e && (this.canvas = e, this.ctx = e.getContext("2d"), window.addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas());
 	}
 	setNodeStatus(e, t, n) {
 		let r = document.querySelector(`.bus-node[data-node-id="${e}"]`);
@@ -58,7 +63,7 @@ var e = class {
 		t && (t.style.display = e ? "none" : "block"), n && (n.style.display = e ? "block" : "none"), this.setNodeStatus("camera", e ? "active" : "warn", e ? "STREAM: ACTIVE\n640 × 480" : "STREAM: STOPPED\nAWAITING");
 	}
 	boot(e) {
-		this.canvas && this.ctx || (this.canvas = e || document.getElementById("sync-canvas"), this.canvas ? (this.ctx = this.canvas.getContext("2d"), (e ? window.parent : window).addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas(), this._startWave(), this._startClock(), console.log("✅ [MagiTerminal] Wave system booted successfully.")) : console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found."));
+		this.canvas && this.ctx || (this.canvas = e || document.getElementById("sync-canvas"), this.canvas ? (this.ctx = this.canvas.getContext("2d"), window.addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas(), console.log("✅ [MagiTerminal] Canvas acquired via boot(). Wave loop will pick it up next frame.")) : console.warn("⚠️ [MagiTerminal] Boot failed: #sync-canvas not found."));
 	}
 	attachCameraStream(e) {
 		let t = document.getElementById("camera-preview");
@@ -81,19 +86,11 @@ var e = class {
 		let e = document.getElementById("camera-view");
 		e && e.querySelectorAll(".detection-box").forEach((e) => e.remove());
 	}
-	_initCanvas() {
-		this.canvas = document.getElementById("sync-canvas"), this.canvas && (this.ctx = this.canvas.getContext("2d"), window.addEventListener("resize", () => this._resizeCanvas()), this._resizeCanvas());
-	}
 	_resizeCanvas() {
 		this.canvas && (this.canvas.width = this.canvas.offsetWidth, this.canvas.height = this.canvas.offsetHeight);
 	}
 	_startWave() {
-		let e = this.canvas, t = this.ctx;
-		if (!e || !t) {
-			console.error("MagiTerminal: Canvas or Context not found.");
-			return;
-		}
-		let n = [
+		let e = [
 			{
 				stroke: "#ff2200",
 				mesh: "rgba(255,34,0,0.18)"
@@ -106,34 +103,34 @@ var e = class {
 				stroke: "#0055ff",
 				mesh: "rgba(0,85,255,0.14)"
 			}
-		], r = () => {
-			let i = e.width, a = e.height;
-			t.clearRect(0, 0, i, a);
+		], t = () => {
+			let n = this.canvas, r = this.ctx;
+			if (!n || !r || n.width === 0) {
+				this._tryInitCanvas(), requestAnimationFrame(t);
+				return;
+			}
+			let i = n.width, a = n.height;
+			r.clearRect(0, 0, i, a);
 			let o = Math.max(0, (100 - this.syncValue) / 100), s = o * 35, c = 1 + o * 8, l = o * 3;
-			n.forEach(({ stroke: e, mesh: n }, r) => {
-				let u = r * l;
-				t.beginPath(), t.globalCompositeOperation = "screen", t.strokeStyle = e, t.lineWidth = .8 + (1 - o) * .7;
+			e.forEach(({ stroke: e, mesh: t }, n) => {
+				let u = n * l;
+				r.globalCompositeOperation = "screen", r.strokeStyle = e, r.lineWidth = .8 + (1 - o) * .7;
 				let d = [];
-				t.beginPath();
+				r.beginPath();
 				for (let e = 0; e < i; e++) {
-					let n = a / 2 + Math.sin(e * .02 + this.animT + u) * s;
-					d[e] = n;
-					let r = n - c;
-					e === 0 ? t.moveTo(e, r) : t.lineTo(e, r);
+					let t = a / 2 + Math.sin(e * .02 + this.animT + u) * s;
+					d[e] = t, e === 0 ? r.moveTo(e, t - c) : r.lineTo(e, t - c);
 				}
-				t.stroke(), t.beginPath();
-				for (let e = 0; e < i; e++) {
-					let n = d[e] + c;
-					e === 0 ? t.moveTo(e, n) : t.lineTo(e, n);
-				}
-				t.stroke(), t.strokeStyle = n, t.lineWidth = 1;
-				for (let e = 0; e < i; e += 6) t.beginPath(), t.moveTo(e, d[e] - c), t.lineTo(e, d[e] + c), t.stroke();
-				t.strokeStyle = `rgba(255, 255, 255, ${.3 + (1 - o) * .4})`, t.lineWidth = .5, t.beginPath();
-				for (let e = 0; e < i; e++) e === 0 ? t.moveTo(e, d[e]) : t.lineTo(e, d[e]);
-				t.stroke();
-			}), this.animT += .03 + (1 - o) * .02, requestAnimationFrame(r);
+				r.stroke(), r.beginPath();
+				for (let e = 0; e < i; e++) e === 0 ? r.moveTo(e, d[e] + c) : r.lineTo(e, d[e] + c);
+				r.stroke(), r.strokeStyle = t, r.lineWidth = 1;
+				for (let e = 0; e < i; e += 6) r.beginPath(), r.moveTo(e, d[e] - c), r.lineTo(e, d[e] + c), r.stroke();
+				r.strokeStyle = `rgba(255,255,255,${.3 + (1 - o) * .4})`, r.lineWidth = .5, r.beginPath();
+				for (let e = 0; e < i; e++) e === 0 ? r.moveTo(e, d[e]) : r.lineTo(e, d[e]);
+				r.stroke();
+			}), this.animT += .03 + (1 - o) * .02, requestAnimationFrame(t);
 		};
-		r();
+		t();
 	}
 	_updateSyncBars() {
 		let e = document.getElementById("sync-bars");
@@ -177,12 +174,10 @@ var e = class {
 	constructor(t) {
 		this.objectManager = t, this.magi = new e();
 		let n = () => {
-			let e = document.getElementById("sync-canvas") || (window.parent === window ? null : window.parent.document.getElementById("sync-canvas"));
-			e ? (this.magi.boot(e), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING..."), console.log("✅ [WebTerminal] UI Bootstrapped (Cross-context).")) : (console.log("⏳ [WebTerminal] Searching across contexts for #sync-canvas..."), setTimeout(n, 100));
+			let e = document.getElementById("sync-canvas");
+			e ? (this.magi.boot(e), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "CREATE / FIND: OK\nINSTANCES: 1"), console.log("✅ [WebTerminal] MagiTerminal booted.")) : (console.log("⏳ [WebTerminal] waiting for #sync-canvas..."), setTimeout(n, 50));
 		};
-		n(), setTimeout(() => {
-			console.log("🚀 [AUTO-START] Initiating Camera..."), this._startCamera();
-		}, 2e3);
+		n();
 		let r = document.getElementById("stream-start-btn");
 		r && r.addEventListener("click", () => this._startCamera()), this._initWebRTC(), console.log("✅ WebTerminal internal systems ready");
 	}
@@ -212,21 +207,21 @@ var e = class {
 		}
 	}
 	update = (e) => {
-		let t = this._lastConfidenceSync || 44.1;
+		let t = this._lastConfidenceSync ?? 44.1;
 		if (this.magi.currentSync += (t - this.magi.currentSync) * .1, this.magi.setSyncRatio(this.magi.currentSync + (Math.random() - .5) * .5), this.webRTC) {
-			if (console.log("tick"), !this.webRTC.isStreaming()) {
+			if (!this.webRTC.isStreaming()) {
 				let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
 				e && this.webRTC.addStream(e);
 			}
 			if (this.webRTC.isConnected()) {
 				let e;
-				for (; (e = this.webRTC.receiveData()) !== null;) console.log("📦 Received from Rust:", e), this._handleData(e);
+				for (; (e = this.webRTC.receiveData()) !== null;) this._handleData(e);
 			}
 		}
 	};
 	_entityCount = 0;
 	_handleData(e) {
-		if (this.magi.setSyncRatio(85.5), e.type !== "detection") return;
+		if (e.type !== "detection") return;
 		let t;
 		try {
 			let n = e.payload.replace("DETECTED:", "");
@@ -248,13 +243,12 @@ var e = class {
 			i[2] / 640,
 			i[3] / 480
 		]), a !== void 0) {
-			let e = 40 + a * 60;
-			this.magi.setSyncRatio(e);
-			let t = a > .5 ? "agree" : "reject", r = a > .7 ? "agree" : "reject";
+			this._lastConfidenceSync = 40 + a * 60;
+			let e = a > .5 ? "agree" : "reject", t = a > .7 ? "agree" : "reject";
 			this.magi.setMagiVerdicts([
 				"agree",
-				t,
-				r
+				e,
+				t
 			]), a < .5 && this.magi.postLog(`MISMATCH: ${n} DIFF=${(1 - a).toFixed(2)}`, "warn");
 		}
 		let u = this._entityCount + 2;

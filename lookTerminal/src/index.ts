@@ -28,59 +28,46 @@ export const initGame = (objectManager: IObjectManager) => {
 export class WebTerminal {
 
     private objectManager: IObjectManager;
-    private webRTC:  WebRTC | null = null;
-    private magi:   MagiTerminal;
+    private webRTC: WebRTC | null = null;
+    private magi:  MagiTerminal;
     private _lastConfidenceSync: number | null = null;
 
-
     constructor(objectManager: IObjectManager) {
-    this.objectManager = objectManager;
-    this.magi = new MagiTerminal();
+        this.objectManager = objectManager;
+        this.magi = new MagiTerminal();
 
-    // ── 1. UIの初期化待機 ──
-    // アロー関数を変数に代入し、再帰的に呼び出せるようにする
-    const mountUI = () => {
-        // 1. 自身のドキュメントから探す
-        // 2. もし見つからず、自分が iframe なら親のドキュメントから探す
-        const canvas = document.getElementById('sync-canvas') || 
-                    (window.parent !== window ? window.parent.document.getElementById('sync-canvas') : null);
+        // ── UI Boot ──────────────────────────────────────────────────────
+        // app.js は index.html の iframe 内で実行される。
+        // window.parent へのアクセスは CORS で弾かれるため、自分の document だけを使う。
+        // MagiTerminal._startWave() はループ済みなので、
+        // canvas が取得できた次フレームから描画が自動的に始まる。
+        const tryBoot = () => {
+            const canvas = document.getElementById('sync-canvas') as HTMLCanvasElement | null;
+            if (canvas) {
+                this.magi.boot(canvas);
+                this.magi.setSyncRatio(0);
+                this.magi.setObjective('WAITING FOR COMMAND', 0);
+                this.magi.setNodeStatus('object-mgr', 'active', 'CREATE / FIND: OK\nINSTANCES: 1');
+                console.log('✅ [WebTerminal] MagiTerminal booted.');
+            } else {
+                // DOMが描画される前に呼ばれた場合のリトライ（50ms間隔、CORS不要）
+                console.log('⏳ [WebTerminal] waiting for #sync-canvas...');
+                setTimeout(tryBoot, 50);
+            }
+        };
+        tryBoot();
 
-        if (canvas) {
-            // 見つかった Canvas を明示的に boot に渡すように MagiSystem 側も調整が必要
-            this.magi.boot(canvas as HTMLCanvasElement); 
-            
-            this.magi.setSyncRatio(0);
-            this.magi.setObjective('WAITING FOR COMMAND', 0);
-            this.magi.setNodeStatus('system', 'warn', 'AUTO-BOOT SEQUENCING...');
-            console.log("✅ [WebTerminal] UI Bootstrapped (Cross-context).");
-        } else {
-            console.log("⏳ [WebTerminal] Searching across contexts for #sync-canvas...");
-            setTimeout(mountUI, 100); 
-        }
-    };
+        // START STREAM ボタン
+        const btn = document.getElementById('stream-start-btn');
+        if (btn) btn.addEventListener('click', () => this._startCamera());
 
-    // 最初の呼び出し
-    mountUI();
-
-    // ── 2. 自動起動（カメラなど） ──
-    setTimeout(() => {
-        console.log("🚀 [AUTO-START] Initiating Camera...");
-        this._startCamera();
-    }, 2000);
-
-    // ボタン設定
-    const btn = document.getElementById('stream-start-btn');
-    if (btn) {
-        btn.addEventListener('click', () => this._startCamera());
+        this._initWebRTC();
+        console.log('✅ WebTerminal internal systems ready');
     }
 
-    this._initWebRTC();
-    console.log('✅ WebTerminal internal systems ready');
-}
-
-    // ══════════════════════════════════════════
+    // ════════════════════════════════════════════════════════
     //  WebRTC
-    // ══════════════════════════════════════════
+    // ════════════════════════════════════════════════════════
 
     private async _initWebRTC(): Promise<void> {
         const netObj = this.objectManager.createGameObject('network_system');
@@ -109,9 +96,9 @@ export class WebTerminal {
         }
     }
 
-    // ══════════════════════════════════════════
-    //  Camera  (triggered by START button)
-    // ══════════════════════════════════════════
+    // ════════════════════════════════════════════════════════
+    //  Camera  (START ボタン or _startCamera() で起動)
+    // ════════════════════════════════════════════════════════
 
     private async _startCamera(): Promise<void> {
         this.magi.setNodeStatus('camera', 'warn', 'REQUESTING...\nPENDING');
@@ -120,21 +107,17 @@ export class WebTerminal {
         try {
             const camObj = this.objectManager.createGameObject('camera');
             const camera = camObj.addComponent<Camera>('Camera');
-
-            // getStream() returns Promise<MediaStream> or MediaStream
             const stream = await camera.getStream();
 
             if (stream) {
-                // Hand stream to the video element via MagiTerminal
                 this.magi.attachCameraStream(stream);
                 this.magi.setStreamingState(true);
                 this.magi.setNodeStatus('camera',    'active', 'STREAM: ACTIVE\n640 × 480');
                 this.magi.setNodeStatus('detection', 'active', 'YOLO: RUNNING\nENTITY SYNC: ON');
                 this.magi.postLog('Camera: stream active 640×480', 'ok');
-                this.magi.setSyncRatio(62.4); // initial sync boost
+                this.magi.setSyncRatio(62.4);
                 this.magi.setMagiVerdicts(['agree', 'agree', 'agree']);
 
-                // Pass stream to WebRTC if already connected
                 if (this.webRTC && !this.webRTC.isStreaming()) {
                     this.webRTC.addStream(stream);
                     this.magi.postLog('WebRTC: stream attached', 'ok');
@@ -148,50 +131,51 @@ export class WebTerminal {
         }
     }
 
-    // ══════════════════════════════════════════
-    //  Main loop  (called every frame by engine)
-    // ══════════════════════════════════════════
+    // ════════════════════════════════════════════════════════
+    //  Main loop  (エンジンから毎フレーム呼ばれる)
+    // ════════════════════════════════════════════════════════
 
     public update = (_dt: number): void => {
-        const targetSync = this._lastConfidenceSync || 44.1; // 最後に受信した信頼度、なければ初期値
-        const lerpSpeed = 0.1;
-        this.magi.currentSync += (targetSync - this.magi.currentSync) * lerpSpeed;
+        // Sync ratio を受信した confidence に向けてスムーズに追従
+        const targetSync = this._lastConfidenceSync ?? 44.1;
+        this.magi.currentSync += (targetSync - this.magi.currentSync) * 0.1;
         this.magi.setSyncRatio(this.magi.currentSync + (Math.random() - 0.5) * 0.5);
-        if (!this.webRTC) return;
-        console.log("tick");
 
-        // Pass camera stream to WebRTC once (idempotent — webRTC guards internally)
+        if (!this.webRTC) return;
+
+        // カメラストリームを WebRTC へ渡す（べき等）
         if (!this.webRTC.isStreaming()) {
             const camObj = this.objectManager.findGameObject('camera');
             const camera = camObj?.getComponent<Camera>('Camera');
             const stream = camera?.getStream();
-            if (stream) {
-                this.webRTC.addStream(stream as MediaStream);
-            }
+            if (stream) this.webRTC.addStream(stream as MediaStream);
         }
 
-        // Receive and handle data from Rust/backend
+        // Rust backend からのデータを全て処理
         if (this.webRTC.isConnected()) {
-            // 溜まっているデータを全て処理するまでループ
             let data;
             while ((data = this.webRTC.receiveData()) !== null) {
-                console.log("📦 Received from Rust:", data);
                 this._handleData(data);
             }
         }
     };
 
-    // ══════════════════════════════════════════
-    //  Data Handler  (detection payloads)
-    // ══════════════════════════════════════════
+    // ════════════════════════════════════════════════════════
+    //  Detection payload handler
+    // ════════════════════════════════════════════════════════
 
     private _entityCount = 0;
 
     private _handleData(data: any): void {
-        this.magi.setSyncRatio(85.5);
         if (data.type !== 'detection') return;
 
-        let detection: { label: string; entity_id: string; bbox: [number, number, number, number]; confidence?: number };
+        let detection: {
+            label: string;
+            entity_id: string;
+            bbox: [number, number, number, number];
+            confidence?: number;
+        };
+
         try {
             const rawJson = data.payload.replace('DETECTED:', '');
             detection = JSON.parse(rawJson);
@@ -203,7 +187,7 @@ export class WebTerminal {
 
         const { label, entity_id, bbox, confidence } = detection;
 
-        // ── ECS: find or create entity object ──
+        // ECS: 既存オブジェクトか確認、なければ生成
         let obj = this.objectManager.findGameObject(entity_id);
         if (!obj) {
             obj = this.objectManager.createGameObject(entity_id);
@@ -213,11 +197,9 @@ export class WebTerminal {
                 `YOLO: RUNNING\nENTITIES: ${this._entityCount}`);
         }
 
-        // ── Transform sync ──
-        // Convert YOLO pixel coords (640×480) → normalised –1..1
+        // Transform 同期: YOLO pixel (640×480) → normalised -1..1
         const nx = (bbox[0] / 640) * 2 - 1;
         const ny = -((bbox[1] / 480) * 2 - 1);
-
         const transform = obj.getComponent<Transform>('Transform');
         if (transform?.position) {
             transform.position.x = nx;
@@ -225,8 +207,7 @@ export class WebTerminal {
             transform.position.z = -2.0;
         }
 
-        // ── Render bbox in MagiTerminal ──
-        // Convert pixel bbox → normalised (0..1) for camera-view overlay
+        // BBox をカメラビューにレンダリング (0..1 正規化)
         this.magi.renderDetection(label, entity_id, [
             bbox[0] / 640,
             bbox[1] / 480,
@@ -234,15 +215,13 @@ export class WebTerminal {
             bbox[3] / 480,
         ]);
 
-        // ── Confidence → sync ratio ──
+        // confidence → sync ratio + MAGI 判定
         if (confidence !== undefined) {
-            const newSync = 40 + confidence * 60; // map 0..1 → 40..100
-            this.magi.setSyncRatio(newSync);
+            this._lastConfidenceSync = 40 + confidence * 60;
 
-            // MAGI votes based on confidence threshold
-            const agree: 'agree' | 'reject' = confidence > 0.5 ? 'agree' : 'reject';
-            const magi3: 'agree' | 'reject' = confidence > 0.7 ? 'agree' : 'reject';
-            this.magi.setMagiVerdicts(['agree', agree, magi3]);
+            const vote2: 'agree' | 'reject' = confidence > 0.5 ? 'agree' : 'reject';
+            const vote3: 'agree' | 'reject' = confidence > 0.7 ? 'agree' : 'reject';
+            this.magi.setMagiVerdicts(['agree', vote2, vote3]);
 
             if (confidence < 0.5) {
                 this.magi.postLog(
@@ -252,7 +231,7 @@ export class WebTerminal {
             }
         }
 
-        // ── ECS stats update ──
+        // ECS 整合性表示を更新
         const allObjs = this._entityCount + 2; // +camera +network
         this.magi.setECSStats(allObjs, allObjs * 2 + 1, true);
     }
