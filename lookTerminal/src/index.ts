@@ -30,6 +30,7 @@ export class WebTerminal {
     private objectManager: IObjectManager;
     private webRTC:  WebRTC | null = null;
     private magi:   MagiTerminal;
+    private _lastConfidenceSync: number | null = null;
 
     constructor(objectManager: IObjectManager) {
         this.objectManager = objectManager;
@@ -135,9 +136,10 @@ export class WebTerminal {
     // ══════════════════════════════════════════
 
     public update = (_dt: number): void => {
-        const jitter = (Math.random() - 0.5) * 0.2;
-        this.magi.setSyncRatio(this.magi.currentSync + jitter);
-        console.log("wave update");
+        const targetSync = this._lastConfidenceSync || 44.1; // 最後に受信した信頼度、なければ初期値
+        const lerpSpeed = 0.1;
+        this.magi.currentSync += (targetSync - this.magi.currentSync) * lerpSpeed;
+        this.magi.setSyncRatio(this.magi.currentSync + (Math.random() - 0.5) * 0.5);
         if (!this.webRTC) return;
         console.log("tick");
 

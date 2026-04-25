@@ -85,7 +85,12 @@ var e = class {
 		this.canvas && (this.canvas.width = this.canvas.offsetWidth, this.canvas.height = this.canvas.offsetHeight);
 	}
 	_startWave() {
-		let e = [
+		let e = this.canvas, t = this.ctx;
+		if (!e || !t) {
+			console.error("MagiTerminal: Canvas or Context not found.");
+			return;
+		}
+		let n = [
 			{
 				stroke: "#ff2200",
 				mesh: "rgba(255,34,0,0.18)"
@@ -98,41 +103,34 @@ var e = class {
 				stroke: "#0055ff",
 				mesh: "rgba(0,85,255,0.14)"
 			}
-		], t = () => {
-			if (!this.ctx || !this.canvas) {
-				requestAnimationFrame(t);
-				return;
-			}
-			let n = this.ctx, { width: r, height: i } = this.canvas;
-			n.clearRect(0, 0, r, i);
-			let a = Math.max(0, (100 - this.syncValue) / 100), o = 8 + a * 26;
-			e.forEach(({ stroke: e, mesh: t }, s) => {
-				let c = s * a * 2.2, l = 3 + a * 4, u = Array(r);
-				for (let e = 0; e < r; e++) u[e] = i / 2 + Math.sin(e * .022 + this.animT + c) * o * Math.sin(this.animT * .3 + s * .5);
-				n.globalCompositeOperation = "screen", n.strokeStyle = t, n.lineWidth = 1;
-				for (let e = 0; e < r; e += 6) {
-					let t = u[e];
-					n.beginPath(), n.moveTo(e, t - l), n.lineTo(e, t + l), n.stroke();
+		], r = () => {
+			let i = e.width, a = e.height;
+			t.clearRect(0, 0, i, a);
+			let o = Math.max(0, (100 - this.syncValue) / 100), s = o * 35, c = 1 + o * 8, l = o * 3;
+			n.forEach(({ stroke: e, mesh: n }, r) => {
+				let u = r * l;
+				t.beginPath(), t.globalCompositeOperation = "screen", t.strokeStyle = e, t.lineWidth = .8 + (1 - o) * .7;
+				let d = [];
+				t.beginPath();
+				for (let e = 0; e < i; e++) {
+					let n = a / 2 + Math.sin(e * .02 + this.animT + u) * s;
+					d[e] = n;
+					let r = n - c;
+					e === 0 ? t.moveTo(e, r) : t.lineTo(e, r);
 				}
-				n.strokeStyle = e, n.lineWidth = 1.5, n.beginPath();
-				for (let e = 0; e < r; e++) {
-					let t = u[e] - l;
-					e === 0 ? n.moveTo(e, t) : n.lineTo(e, t);
+				t.stroke(), t.beginPath();
+				for (let e = 0; e < i; e++) {
+					let n = d[e] + c;
+					e === 0 ? t.moveTo(e, n) : t.lineTo(e, n);
 				}
-				n.stroke(), n.beginPath();
-				for (let e = 0; e < r; e++) {
-					let t = u[e] + l;
-					e === 0 ? n.moveTo(e, t) : n.lineTo(e, t);
-				}
-				n.stroke(), n.lineWidth = .8, n.beginPath();
-				for (let e = 0; e < r; e++) {
-					let t = u[e];
-					e === 0 ? n.moveTo(e, t) : n.lineTo(e, t);
-				}
-				n.stroke();
-			}), this.animT += .025, requestAnimationFrame(t);
+				t.stroke(), t.strokeStyle = n, t.lineWidth = 1;
+				for (let e = 0; e < i; e += 6) t.beginPath(), t.moveTo(e, d[e] - c), t.lineTo(e, d[e] + c), t.stroke();
+				t.strokeStyle = `rgba(255, 255, 255, ${.3 + (1 - o) * .4})`, t.lineWidth = .5, t.beginPath();
+				for (let e = 0; e < i; e++) e === 0 ? t.moveTo(e, d[e]) : t.lineTo(e, d[e]);
+				t.stroke();
+			}), this.animT += .03 + (1 - o) * .02, requestAnimationFrame(r);
 		};
-		t();
+		r();
 	}
 	_updateSyncBars() {
 		let e = document.getElementById("sync-bars");
@@ -172,6 +170,7 @@ var e = class {
 	objectManager;
 	webRTC = null;
 	magi;
+	_lastConfidenceSync = null;
 	constructor(t) {
 		this.objectManager = t, this.magi = new e(), setTimeout(() => {
 			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("system", "warn", "AUTO-BOOT SEQUENCING...");
@@ -209,8 +208,8 @@ var e = class {
 		}
 	}
 	update = (e) => {
-		let t = (Math.random() - .5) * .2;
-		if (this.magi.setSyncRatio(this.magi.currentSync + t), console.log("wave update"), this.webRTC) {
+		let t = this._lastConfidenceSync || 44.1;
+		if (this.magi.currentSync += (t - this.magi.currentSync) * .1, this.magi.setSyncRatio(this.magi.currentSync + (Math.random() - .5) * .5), this.webRTC) {
 			if (console.log("tick"), !this.webRTC.isStreaming()) {
 				let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
 				e && this.webRTC.addStream(e);

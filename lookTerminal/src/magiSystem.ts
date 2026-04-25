@@ -266,88 +266,90 @@ export class MagiTerminal {
     }
 
     private _startWave(): void {
-        // Wire-mesh wave: each RGB channel gets
-        //   - upper edge line
-        //   - lower edge line (mirrored)
-        //   - vertical grid lines between them (mesh fill)
-        // At 100% sync all three phases collapse to zero → single white line.
-
-        const WIRE_COLORS = [
-            { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)'   },   // R
-            { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)'   },   // G
-            { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)'   },   // B
-        ];
-        const MESH_STEP = 6;   // px between vertical grid lines
-
-        const draw = () => {
-            if (!this.ctx || !this.canvas) { requestAnimationFrame(draw); return; }
-            const ctx = this.ctx;
-            const { width: W, height: H } = this.canvas;
-            ctx.clearRect(0, 0, W, H);
-
-            const convergence = Math.max(0, (100 - this.syncValue) / 100);
-            // amplitude: bigger when de-synced, collapses at 100 %
-            const amp   = 8 + convergence * 26;
-
-            WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
-                const phase = i * convergence * 2.2;
-                // half-thickness of the wire band (independent of amp so the wire stays visible)
-                const band  = 3 + convergence * 4;
-
-                // Pre-compute y-centres for each x
-                const centres: number[] = new Array(W);
-                for (let x = 0; x < W; x++) {
-                    centres[x] = H / 2
-                        + Math.sin(x * 0.022 + this.animT + phase) * amp
-                        * Math.sin(this.animT * 0.3 + i * 0.5);
-                }
-
-                ctx.globalCompositeOperation = 'screen';
-
-                // ── mesh fill (vertical lines between upper/lower edges) ──
-                ctx.strokeStyle = mesh;
-                ctx.lineWidth   = 1;
-                for (let x = 0; x < W; x += MESH_STEP) {
-                    const cy = centres[x];
-                    ctx.beginPath();
-                    ctx.moveTo(x, cy - band);
-                    ctx.lineTo(x, cy + band);
-                    ctx.stroke();
-                }
-
-                // ── upper edge ──
-                ctx.strokeStyle = stroke;
-                ctx.lineWidth   = 1.5;
-                ctx.beginPath();
-                for (let x = 0; x < W; x++) {
-                    const y = centres[x] - band;
-                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.stroke();
-
-                // ── lower edge ──
-                ctx.beginPath();
-                for (let x = 0; x < W; x++) {
-                    const y = centres[x] + band;
-                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.stroke();
-
-                // ── bright centre spine (thinner, more luminous) ──
-                ctx.lineWidth = 0.8;
-                ctx.beginPath();
-                for (let x = 0; x < W; x++) {
-                    const y = centres[x];
-                    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-                }
-                ctx.stroke();
-            });
-
-            this.animT += 0.025;
-            requestAnimationFrame(draw);
-        };
-        draw();
+    // 1. メソッド内のローカル変数に退避させる（クロージャ用）
+    const canvas = this.canvas;
+    const ctx = this.ctx;
+    if (!canvas || !ctx) {
+        console.error("MagiTerminal: Canvas or Context not found.");
+        return;
     }
+
+    const WIRE_COLORS = [
+        { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)' },
+        { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)' },
+        { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)' },
+    ];
+    const MESH_STEP = 6;
+
+    // 2. アロー関数を使うことで 'this' を MagiTerminal インスタンスに固定
+    const draw = () => {
+        const W = canvas.width;
+        const H = canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        // クラスのプロパティから同期率を取得
+        const drift = Math.max(0, (100 - this.syncValue) / 100);
+
+        const amp = drift * 35;
+        const band = 1 + drift * 8;
+        const phaseShift = drift * 3.0;
+
+        WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
+            const phase = i * phaseShift;
+            
+            // 描画用の座標計算
+            ctx.beginPath();
+            ctx.globalCompositeOperation = 'screen';
+
+            // エッジを描画しながら座標を保持（centres配列を毎回作らない）
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 0.8 + (1 - drift) * 0.7;
+            
+            // Upper Edge & Calculate centers
+            const centersX: number[] = [];
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) {
+                const cy = H / 2 + Math.sin(x * 0.02 + this.animT + phase) * amp;
+                centersX[x] = cy; // あとでメッシュとスパインに使う
+                const y = cy - band;
+                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Lower Edge
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) {
+                const y = centersX[x] + band;
+                x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Mesh (垂直線)
+            ctx.strokeStyle = mesh;
+            ctx.lineWidth = 1;
+            for (let x = 0; x < W; x += MESH_STEP) {
+                ctx.beginPath();
+                ctx.moveTo(x, centersX[x] - band);
+                ctx.lineTo(x, centersX[x] + band);
+                ctx.stroke();
+            }
+
+            // Spine (中央線)
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 + (1 - drift) * 0.4})`;
+            ctx.lineWidth = 0.5;
+            ctx.beginPath();
+            for (let x = 0; x < W; x++) {
+                x === 0 ? ctx.moveTo(x, centersX[x]) : ctx.lineTo(x, centersX[x]);
+            }
+            ctx.stroke();
+        });
+
+        this.animT += 0.03 + (1 - drift) * 0.02;
+        requestAnimationFrame(draw);
+    };
+
+    draw();
+}
 
     private _updateSyncBars(): void {
         const container = document.getElementById('sync-bars');
