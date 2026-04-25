@@ -146,7 +146,9 @@ var c = class {
 	constructor(t) {
 		this.objectManager = t, this.magi = new e(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "READY");
 		let n = document.getElementById("stream-start-btn");
-		n && n.addEventListener("click", () => this._startCamera()), this._initWebRTC();
+		n && n.addEventListener("click", () => this._startCamera()), this._initWebRTC(), setTimeout(() => {
+			this.magi.postLog("AUTO START: Initializing camera...", "warn"), this._startCamera();
+		}, 2e3);
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");

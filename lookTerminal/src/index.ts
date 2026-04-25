@@ -48,6 +48,14 @@ export class WebTerminal {
         if (btn) btn.addEventListener('click', () => this._startCamera());
 
         this._initWebRTC();
+
+        // ───────────────────────────────────────────────
+        // 【復活】2秒後に自動でカメラを起動する
+        // ───────────────────────────────────────────────
+        setTimeout(() => {
+            this.magi.postLog('AUTO START: Initializing camera...', 'warn');
+            this._startCamera();
+        }, 2000);
     }
 
     private async _initWebRTC(): Promise<void> {
