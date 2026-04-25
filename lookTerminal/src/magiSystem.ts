@@ -22,6 +22,7 @@ export class MagiTerminal {
     private canvas: HTMLCanvasElement | null = null;
     private ctx: CanvasRenderingContext2D | null = null;
     private animT: number = 0;
+    public currentSync: number = 0;
 
     // ── Log ticker text ────────────────────────
     private tickerMessages: string[] = [];

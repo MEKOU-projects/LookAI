@@ -135,6 +135,8 @@ export class WebTerminal {
     // ══════════════════════════════════════════
 
     public update = (_dt: number): void => {
+        const jitter = (Math.random() - 0.5) * 0.2;
+        this.magi.setSyncRatio(this.magi.currentSync + jitter);
         if (!this.webRTC) return;
         console.log("tick");
 
@@ -166,6 +168,7 @@ export class WebTerminal {
     private _entityCount = 0;
 
     private _handleData(data: any): void {
+        this.magi.setSyncRatio(85.5);
         if (data.type !== 'detection') return;
 
         let detection: { label: string; entity_id: string; bbox: [number, number, number, number]; confidence?: number };

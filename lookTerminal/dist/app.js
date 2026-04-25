@@ -4,6 +4,7 @@ var e = class {
 	canvas = null;
 	ctx = null;
 	animT = 0;
+	currentSync = 0;
 	tickerMessages = [];
 	constructor() {
 		this._initCanvas(), this._startWave(), this._startClock();
@@ -208,7 +209,8 @@ var e = class {
 		}
 	}
 	update = (e) => {
-		if (this.webRTC) {
+		let t = (Math.random() - .5) * .2;
+		if (this.magi.setSyncRatio(this.magi.currentSync + t), this.webRTC) {
 			if (console.log("tick"), !this.webRTC.isStreaming()) {
 				let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
 				e && this.webRTC.addStream(e);
@@ -221,7 +223,7 @@ var e = class {
 	};
 	_entityCount = 0;
 	_handleData(e) {
-		if (e.type !== "detection") return;
+		if (this.magi.setSyncRatio(85.5), e.type !== "detection") return;
 		let t;
 		try {
 			let n = e.payload.replace("DETECTED:", "");
