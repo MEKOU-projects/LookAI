@@ -20,3 +20,8 @@ npm install @mekou/engine-api@latest
 ffmpeg -i .\output.h264 -c copy -bsf:v trace_headers -f null - 2>&1 | findstr "NAL unit type"
 
 ffmpeg -re -f h264 -fflags +genpts+nobuffer -i .\debug_stream.h264 -vcodec copy -f flv rtmp://localhost/live
+
+
+TODO:
+cloudflared tunnel -url http://localhost:3001
+https://localhost:1420/terminal.html?ui=https://mekou-projects.github.io/LookAI/lookTerminal/&app=https://mekou-projects.github.io/LookAI/lookTerminal//dist/app.js

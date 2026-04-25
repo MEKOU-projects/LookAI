@@ -35,17 +35,24 @@ export class WebTerminal {
         this.objectManager = objectManager;
         this.magi = new MagiTerminal();
 
-        // ── Initial UI state (all "--" until system injects real data) ──
-        this.magi.setSyncRatio(0);
-        this.magi.setObjective('INITIALIZING...', 0);
-        this.magi.setPlan([{ text: 'WAITING FOR ENGINE', level: 'warn' }]);
-        this.magi.setECSStats(0, 0, false);
-        this.magi.setNodeStatus('object-mgr', 'active',
-            `CREATE / FIND: OK\nINSTANCES: ${objectManager ? '1' : '0'}`);
+        // 1. UIの初期化を待つ (magiSystem側でDOM構築が終わっている前提)
+        setTimeout(() => {
+            this.magi.setSyncRatio(0);
+            this.magi.setObjective('WAITING FOR COMMAND', 0);
+            // ...他の初期化
+        }, 100);
 
-        // Wire up the START STREAM button in the UI
-        const btn = document.getElementById('stream-start-btn');
-        if (btn) btn.addEventListener('click', () => this._startCamera());
+        // 2. ボタンIDの不一致を防ぐ
+        const btnId = 'start-btn'; // HTML側に合わせる
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                console.log("🚀 OPERATION START: Initiating Camera and Sync...");
+                this._startCamera();
+            });
+        } else {
+            console.error(`❌ UI Error: Button '${btnId}' not found in DOM.`);
+        }
 
         this._initWebRTC();
     }

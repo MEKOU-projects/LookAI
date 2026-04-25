@@ -172,12 +172,13 @@ var e = class {
 	webRTC = null;
 	magi;
 	constructor(t) {
-		this.objectManager = t, this.magi = new e(), this.magi.setSyncRatio(0), this.magi.setObjective("INITIALIZING...", 0), this.magi.setPlan([{
-			text: "WAITING FOR ENGINE",
-			level: "warn"
-		}]), this.magi.setECSStats(0, 0, !1), this.magi.setNodeStatus("object-mgr", "active", `CREATE / FIND: OK\nINSTANCES: ${t ? "1" : "0"}`);
-		let n = document.getElementById("stream-start-btn");
-		n && n.addEventListener("click", () => this._startCamera()), this._initWebRTC();
+		this.objectManager = t, this.magi = new e(), setTimeout(() => {
+			this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0);
+		}, 100);
+		let n = "start-btn", r = document.getElementById(n);
+		r ? r.addEventListener("click", () => {
+			console.log("🚀 OPERATION START: Initiating Camera and Sync..."), this._startCamera();
+		}) : console.error(`❌ UI Error: Button '${n}' not found in DOM.`), this._initWebRTC();
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
