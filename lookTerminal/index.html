@@ -3,62 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <link rel="stylesheet" href="./nerv.css">
+    <style>
+    /* ── DEVICE PANEL ── */
+    #device-panel {
+        flex-shrink: 0;
+        border: 1px solid var(--nerv-orange);
+        background: var(--bg-panel);
+        display: flex;
+        flex-direction: column;
+        min-width: 170px;
+    }
+    .device-list { flex:1; overflow-y:auto; padding:4px 6px; display:flex; flex-direction:column; gap:3px; scrollbar-width:none; }
+    .device-list::-webkit-scrollbar { display:none; }
+    .device-row {
+        display:flex; flex-direction:column;
+        padding:3px 6px;
+        border: 1px solid #222;
+        background: var(--bg-deep);
+        position: relative;
+    }
+    .device-row.active  { border-color: var(--nerv-orange); }
+    .device-row.warn    { border-color: var(--nerv-yellow); }
+    .device-row.err     { border-color: var(--nerv-red); }
+    .device-row.dim     { border-color: #1a1a1a; opacity:.5; }
+    .device-name { font-family:var(--font-hud); font-size:7px; font-weight:700; letter-spacing:1px; color:var(--nerv-orange); display:flex; align-items:center; gap:4px; }
+    .device-status { font-size:7px; color:#555; margin-top:1px; }
+    .device-row.warn .device-name  { color:var(--nerv-yellow); }
+    .device-row.err  .device-name  { color:var(--nerv-red); }
+    .device-row.dim  .device-name  { color:#333; }
+    /* Kill switch */
+    .kill-btn {
+        position:absolute; top:3px; right:4px;
+        font-family:var(--font-hud); font-size:6px; font-weight:700; letter-spacing:1px;
+        padding:1px 4px;
+        background:transparent; border:1px solid #cc0000; color:#cc0000;
+        cursor:pointer; transition: background .15s, color .15s;
+    }
+    .kill-btn:hover { background:#cc0000; color:#fff; }
+    .device-killed { text-decoration:line-through; opacity:.3; }
+
+    /* ── ECS BARS ── */
+    .ecs-bar-row { display:flex; flex-direction:column; gap:1px; margin-top:2px; }
+    .ecs-bar-label { font-size:6px; color:#444; letter-spacing:1px; display:flex; justify-content:space-between; }
+    .ecs-bar-track { height:4px; background:#1a1a1a; position:relative; overflow:hidden; }
+    .ecs-bar-fill  { height:100%; background:var(--nerv-orange); transition:width .5s ease; position:relative; }
+    .ecs-bar-fill::after { content:''; position:absolute; right:0; top:0; width:2px; height:100%; background:#fff; animation:tip-blink 1s ease-in-out infinite; }
+    .ecs-bar-fill.green { background:var(--nerv-green); }
+    .ecs-bar-fill.blue  { background:var(--nerv-blue,#0088ff); }
+
+    /* ── PIPELINE PROGRESS (Objective) ── */
+    .pipeline-row { display:flex; gap:0; align-items:center; padding: 3px 0 0; }
+    .pipe-stage {
+        flex:1; text-align:center; font-family:var(--font-hud); font-size:6px;
+        letter-spacing:1px; color:#333; padding:2px 0;
+        border-top:2px solid #222; position:relative;
+        transition: color .3s, border-color .3s;
+    }
+    .pipe-stage.active  { color:var(--nerv-orange); border-color:var(--nerv-orange); }
+    .pipe-stage.done    { color:var(--nerv-green);  border-color:var(--nerv-green); }
+    .pipe-stage.err     { color:var(--nerv-red);    border-color:var(--nerv-red); animation:blink-red 1s infinite; }
+    .pipe-arrow { color:#333; font-size:8px; flex-shrink:0; }
+
+    /* ── LOG GRID (3col) ── */
+    /* already in nerv.css, override max entries */
+    </style>
 </head>
 <body>
 <div id="ui-container">
 
-    <!-- ══════════════════════════════════════
-         TOP: SIGNAL BUS CONNECTION TREE
-         ══════════════════════════════════════ -->
+    <!-- ══════════════ TOP: SIGNAL BUS TREE ══════════════ -->
     <div id="top-panel" class="panel">
         <div class="slash"></div>
         <div class="tree-header">
             <div class="panel-label">INTERFACE CONNECTION TREE</div>
             <span id="tree-clock" class="tree-clock">--:--:--</span>
         </div>
-
-        <!--
-            SIGNAL BUS LAYOUT
-            ──────────────────────────────────────────────────
-            [NERV]──wire──[OBJECT MGR]──wire──┬─[NETWORK ]
-                                              └─[WEBRTC  ]
-                                   ──wire──┬─[CAMERA   ]
-                                           └─[DETECTION]
-                                   ──wire──┬─[MAGI SYS ]  (err)
-                                           └─[IFRAME   ]  (err)
-                                   ──wire──  [GRABBER  ]  (dim)
-                                   ──wire──  [HAPTIC   ]  (dim/warn)
-            ──────────────────────────────────────────────────
-            Each .bus-node carries data-node-id so MagiTerminal.setNodeStatus() can target it.
-        -->
-        <div class="bus-container">
-
-            <!-- ROOT -->
+        <!-- bus-container は JS で動的にノードを追加できる。初期ノードはハードコード -->
+        <div class="bus-container" id="bus-container">
             <div class="bus-root">
                 <div class="bus-root-name">NERV</div>
                 <div class="bus-root-sub">SYSTEM</div>
             </div>
-
-            <!-- wire → OBJECT MGR (single node) -->
+            <!-- wire → OBJECT MGR -->
             <div class="wire md"></div>
             <div class="node-stack">
                 <div class="node-row">
                     <div class="bus-node active" data-node-id="object-mgr">
                         <div class="bus-node-name"><span class="status-dot ok"></span>OBJECT MGR</div>
-                        <!-- overridden by magi.setNodeStatus('object-mgr', ...) -->
-                        <div class="bus-node-detail">CREATE / FIND: OK<br>INSTANCES: --</div>
+                        <div class="bus-node-detail">READY<br>INSTANCES: --</div>
                     </div>
                 </div>
             </div>
-
-            <!-- wire → NETWORK + WEBRTC (stacked) -->
+            <!-- wire → NETWORK + WEBRTC -->
             <div class="wire lg"></div>
-            <div class="node-stack multi">
+            <div class="node-stack multi" data-stack-id="network-stack">
                 <div class="node-row">
                     <div class="stub"></div>
                     <div class="bus-node active" data-node-id="network">
                         <div class="bus-node-name"><span class="status-dot ok"></span>NETWORK</div>
-                        <!-- overridden by magi.setNodeStatus('network', ...) on WebRTC connect -->
                         <div class="bus-node-detail">WS-BRIDGE: --<br>LATENCY: --</div>
                     </div>
                 </div>
@@ -66,17 +108,15 @@
                     <div class="stub"></div>
                     <div class="bus-node active" data-node-id="webrtc">
                         <div class="bus-node-name"><span class="status-dot ok"></span>WEBRTC</div>
-                        <!-- overridden by magi.setNodeStatus('webrtc', ...) -->
                         <div class="bus-node-detail">CONNECTING...<br>STREAM: --</div>
                     </div>
                 </div>
             </div>
-
-            <!-- wire → CAMERA + DETECTION (stacked) -->
+            <!-- wire → CAMERA + DETECTION -->
             <div class="wire lg"></div>
-            <div class="node-stack multi">
+            <div class="node-stack multi" data-stack-id="camera-stack">
                 <div class="node-row">
-                    <div class="stub"></div>
+                    <div class="stub warn"></div>
                     <div class="bus-node warn" data-node-id="camera">
                         <div class="bus-node-name"><span class="status-dot warn"></span>CAMERA</div>
                         <div class="bus-node-detail">STREAM: STOPPED<br>AWAITING</div>
@@ -90,196 +130,200 @@
                     </div>
                 </div>
             </div>
-
-            <!-- wire (err) → MAGI SYS + IFRAME (stacked, errors) -->
-            <div class="wire lg err"></div>
-            <div class="node-stack multi err">
+            <!-- wire → LLM + META (initially dim — lit when LLM connects) -->
+            <div class="wire lg dim" id="wire-llm"></div>
+            <div class="node-stack multi dim" data-stack-id="llm-stack">
                 <div class="node-row">
-                    <div class="stub err"></div>
-                    <div class="bus-node err" data-node-id="magi-sys">
-                        <div class="bus-node-name"><span class="status-dot err"></span>MAGI SYS</div>
-                        <div class="bus-node-detail">MIME ERR: mp2t<br>MODULE BLOCKED</div>
+                    <div class="stub dim"></div>
+                    <div class="bus-node dim" data-node-id="llm">
+                        <div class="bus-node-name"><span class="status-dot dim"></span>LLM</div>
+                        <div class="bus-node-detail">OLLAMA: --<br>MODEL: --</div>
                     </div>
                 </div>
                 <div class="node-row">
-                    <div class="stub err"></div>
-                    <div class="bus-node err" data-node-id="iframe">
-                        <div class="bus-node-name"><span class="status-dot err"></span>IFRAME</div>
-                        <div class="bus-node-detail">CROSS-ORIGIN<br>DOC: BLOCKED</div>
+                    <div class="stub dim"></div>
+                    <div class="bus-node dim" data-node-id="meta-protocol">
+                        <div class="bus-node-name"><span class="status-dot dim"></span>META-PROTO</div>
+                        <div class="bus-node-detail">INSPECTOR: --<br>JS GEN: --</div>
                     </div>
                 </div>
             </div>
-
-            <!-- wire (dim) → GRABBER (single, unused) -->
+            <!-- wire → HAPTIC (dim / unused) -->
             <div class="wire md dim"></div>
-            <div class="node-stack">
-                <div class="node-row">
-                    <div class="bus-node dim" data-node-id="grabber">
-                        <div class="bus-node-name"><span class="status-dot dim"></span>GRABBER</div>
-                        <div class="bus-node-detail">NOT FOUND<br>LLM REQUEST</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- wire (dim) → HAPTIC (single, missing) -->
-            <div class="wire sm dim"></div>
             <div class="node-stack">
                 <div class="node-row">
                     <div class="bus-node dim" data-node-id="haptic">
                         <div class="bus-node-name"><span class="status-dot dim"></span>HAPTIC</div>
-                        <div class="bus-node-detail">SENSOR: NONE<br>REJECTED</div>
+                        <div class="bus-node-detail">SENSOR: NONE<br>LLM REQUEST</div>
                     </div>
                 </div>
-            </div>
-
-        </div><!-- /.bus-container -->
-    </div><!-- /#top-panel -->
-
-
-    <!-- ══════════════════════════════════════
-         LEFT: SYNC WAVE + MAGI
-         ══════════════════════════════════════ -->
-    <div id="left-panel" class="panel">
-        <div class="panel-label">SYNC RATIO</div>
-        <canvas id="sync-canvas"></canvas>
-        <div class="sync-bottom">
-            <!-- initial value; overridden by magi.setSyncRatio() -->
-            <div id="sync-display" class="sync-big">--.--%</div>
-            <div class="sync-sub">NEURAL SYNC</div>
-            <div class="sync-bars" id="sync-bars"></div>
-            <div class="magi-row">
-                <div class="magi-chip agree">MAGI-1</div>
-                <div class="magi-chip agree">MAGI-2</div>
-                <div class="magi-chip reject">MAGI-3</div>
-            </div>
-            <div class="magi-verdict" id="magi-verdict">
-                <span class="acc">DISAGREE: 1/3</span>
             </div>
         </div>
     </div>
 
+    <!-- ══════════════ LEFT: SYNC WAVE + MAGI ══════════════ -->
+    <div id="left-panel" class="panel">
+        <div class="panel-label">SYNC RATIO</div>
+        <canvas id="sync-canvas"></canvas>
+        <div class="sync-bottom">
+            <div id="sync-display" class="sync-big">--.--%</div>
+            <div class="sync-sub">NEURAL SYNC</div>
+            <div class="sync-bars" id="sync-bars"></div>
+            <div class="magi-row">
+                <div class="magi-chip" id="magi-1">MAGI-1</div>
+                <div class="magi-chip" id="magi-2">MAGI-2</div>
+                <div class="magi-chip" id="magi-3">MAGI-3</div>
+            </div>
+            <div class="magi-verdict" id="magi-verdict">
+                <span class="acc">PENDING</span>
+            </div>
+        </div>
+    </div>
 
-    <!-- ══════════════════════════════════════
-         CENTER: OBJECTIVE + CAMERA VIEW
-         ══════════════════════════════════════ -->
+    <!-- ══════════════ CENTER: OBJECTIVE + CAMERA + DEVICE ══════════════ -->
     <div id="center-panel">
 
-        <!-- Objective bar -->
+        <!-- Objective + Pipeline bar -->
         <div id="objective-panel" class="panel">
             <div class="slash thin"></div>
             <div class="obj-row">
-                <div class="obj-block">
+                <!-- CURRENT OBJECTIVE + pipeline -->
+                <div class="obj-block" style="flex:1.2">
                     <div class="obj-title">CURRENT OBJECTIVE</div>
-                    <!-- overridden by magi.setObjective() -->
                     <div class="obj-value" id="obj-task">--</div>
-                    <div class="progress-track">
-                        <div class="progress-fill" style="width:40%"></div>
+                    <!-- IoT→ECS→LLM→META→JS pipeline progress -->
+                    <div class="pipeline-row" id="pipeline-row">
+                        <div class="pipe-stage" id="pipe-iot">IOT</div>
+                        <div class="pipe-arrow">›</div>
+                        <div class="pipe-stage" id="pipe-ecs">ECS</div>
+                        <div class="pipe-arrow">›</div>
+                        <div class="pipe-stage" id="pipe-llm">LLM</div>
+                        <div class="pipe-arrow">›</div>
+                        <div class="pipe-stage" id="pipe-meta">META</div>
+                        <div class="pipe-arrow">›</div>
+                        <div class="pipe-stage" id="pipe-js">JS</div>
+                    </div>
+                    <div class="progress-track" style="margin-top:4px">
+                        <div class="progress-fill" id="obj-progress" style="width:0%"></div>
                     </div>
                 </div>
+                <!-- NEXT PLAN -->
                 <div class="obj-block">
                     <div class="obj-title">NEXT PLAN</div>
-                    <!-- overridden by magi.setPlan() -->
-                    <div class="obj-plan" id="obj-plan">
-                        <span>&gt; --</span>
-                    </div>
+                    <div class="obj-plan" id="obj-plan"><span>&gt; --</span></div>
                 </div>
-                <div class="obj-block">
+                <!-- ECS INTEGRITY with bars -->
+                <div class="obj-block" id="ecs-block">
                     <div class="obj-title">ECS INTEGRITY</div>
-                    <!-- overridden by magi.setECSStats() -->
-                    <div class="obj-plan" id="obj-ecs">
-                        <span>&gt; OBJECTS: --</span><br>
-                        <span>&gt; COMPONENTS: --</span><br>
-                        <span>&gt; SYSTEMS: --</span>
+                    <div class="ecs-bar-row">
+                        <div class="ecs-bar-label">
+                            <span>OBJECTS</span>
+                            <span id="ecs-obj-text">--/--</span>
+                        </div>
+                        <div class="ecs-bar-track"><div class="ecs-bar-fill" id="ecs-obj-bar" style="width:0%"></div></div>
+                    </div>
+                    <div class="ecs-bar-row">
+                        <div class="ecs-bar-label">
+                            <span>COMPONENTS</span>
+                            <span id="ecs-comp-text">--/--</span>
+                        </div>
+                        <div class="ecs-bar-track"><div class="ecs-bar-fill green" id="ecs-comp-bar" style="width:0%"></div></div>
+                    </div>
+                    <div class="ecs-bar-row">
+                        <div class="ecs-bar-label">
+                            <span>DEVICES</span>
+                            <span id="ecs-dev-text">--/--</span>
+                        </div>
+                        <div class="ecs-bar-track"><div class="ecs-bar-fill blue" id="ecs-dev-bar" style="width:0%"></div></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Camera view -->
-        <div id="camera-view">
-            <!-- overlays -->
-            <div class="cam-grid"></div>
-            <div class="scanline"></div>
-            <div class="bracket tl"></div>
-            <div class="bracket tr"></div>
-            <div class="bracket bl"></div>
-            <div class="bracket br"></div>
+        <!-- Camera view + Device panel row -->
+        <div style="display:flex;gap:4px;flex:1;min-height:0">
 
-            <!-- cam status HUD (top-left) -->
-            <div class="cam-status">
-                <div class="cam-status-line">
-                    <span class="status-dot warn"></span>STREAM: STANDBY
+            <!-- Camera view -->
+            <div id="camera-view" style="flex:1">
+                <div class="cam-grid"></div>
+                <div class="scanline"></div>
+                <div class="bracket tl"></div>
+                <div class="bracket tr"></div>
+                <div class="bracket bl"></div>
+                <div class="bracket br"></div>
+                <div class="cam-status">
+                    <div class="cam-status-line">
+                        <span class="status-dot warn"></span>STREAM: STANDBY
+                    </div>
                 </div>
-                <div class="cam-status-line" id="cam-res-line" style="display:none">
-                    <span class="status-dot ok"></span>640 × 480
+                <video id="camera-preview" autoplay muted playsinline></video>
+                <button id="stream-start-btn">&#9654; START STREAM</button>
+                <div id="entity-badge">ENTITY SYNC: ACTIVE</div>
+            </div>
+
+            <!-- Device status panel -->
+            <div id="device-panel">
+                <div class="panel-label" style="font-size:7px">DEVICES</div>
+                <div class="device-list" id="device-list">
+                    <!-- populated by NERV.registerDevice() -->
+                    <div style="font-size:8px;color:#333;padding:4px;letter-spacing:1px">NO DEVICES</div>
+                </div>
+                <!-- Global kill-all -->
+                <div style="padding:4px;border-top:1px solid #1a1a1a">
+                    <button id="kill-all-btn" style="width:100%;font-family:var(--font-hud);font-size:7px;font-weight:700;letter-spacing:2px;padding:3px;background:transparent;border:1px solid #cc0000;color:#cc0000;cursor:pointer;transition:background .15s,color .15s"
+                        onmouseenter="this.style.background='#cc0000';this.style.color='#fff'"
+                        onmouseleave="this.style.background='transparent';this.style.color='#cc0000'"
+                        onclick="window.NERV.killAllDevices()">
+                        ⬛ KILL ALL
+                    </button>
                 </div>
             </div>
 
-            <!-- actual video element -->
-            <video id="camera-preview" autoplay muted playsinline></video>
+        </div>
+    </div>
 
-            <!-- START STREAM button (hexagon-clipped, visible before streaming) -->
-            <button id="stream-start-btn">&#9654; START STREAM</button>
-
-            <!-- Entity sync badge (visible while streaming) -->
-            <div id="entity-badge">ENTITY SYNC: ACTIVE</div>
-
-        </div><!-- /#camera-view -->
-    </div><!-- /#center-panel -->
-
-
-    <!-- ══════════════════════════════════════
-         BOTTOM: PRIORITY LOG
-         ══════════════════════════════════════ -->
+    <!-- ══════════════ BOTTOM: PRIORITY LOG ══════════════ -->
     <div id="bottom-panel">
         <div class="slash red"></div>
         <div class="log-header">
             <div class="panel-label red">PRIORITY LOG</div>
             <div class="log-ticker">
-                <div class="log-ticker-inner">
-                    MIME TYPE ERROR: video/mp2t ·· CORS BLOCK: localhost:1420 ·· HAPTIC_SENSOR NOT FOUND ·· MAGI-3 REJECT ·· CROSS-ORIGIN IFRAME BLOCKED ··
-                </div>
+                <div class="log-ticker-inner" id="log-ticker-inner">SYSTEM BOOT ··</div>
             </div>
         </div>
         <div class="log-grid" id="log-grid">
-            <div class="log-entry critical">&gt; MIME ERR: magiSystem.ts — video/mp2t</div>
-            <div class="log-entry critical">&gt; SECURITY: Cross-origin frame [1420]</div>
-            <div class="log-entry warn">&gt; CORS: bg transparent failed</div>
-            <div class="log-entry warn">&gt; GRABBER: HAPTIC_SENSOR — NOT FOUND</div>
-            <div class="log-entry">&gt; MISMATCH: YOLO-DOG-2 DIFF=0.42</div>
-            <div class="log-entry ok">&gt; OBJECT MGR: valid and ready</div>
+            <!-- populated by NERV.postLog() -->
         </div>
     </div>
 
 </div><!-- /#ui-container -->
 
-<!--
-    NOTE: Do NOT load magiSystem.ts directly as a module here.
-    The engine (ExternalSiteManager) injects the compiled bundle via initGame().
-    Only reference the compiled output path used by your build tool, e.g.:
-        <script type="module" src="./dist/app.js"></script>
-    Loading the raw .ts directly caused the video/mp2t MIME error in the console logs.
--->
-
 <script>
-// ─────────────────────────────────────────────────────────────
-//  NERV Terminal — Inline UI Controller
-//  index.html 自身に埋め込む。app.js（別contextで動く）からは
-//  window.NERV.* のグローバル API 経由で制御できる。
-// ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+//  NERV Terminal — Inline UI Controller  (window.NERV API)
+//  index.html に埋め込み。app.js は window.NERV.* を呼ぶだけ。
+// ═══════════════════════════════════════════════════════════════
 (function () {
 
-    // ── Canvas / Wave ─────────────────────────────────────────
-    let syncValue  = 0;
-    let animT      = 0;
+    // ───────────────────────────────────────────────────────────
+    //  WAVE  — RGB 3本ワイヤー + メッシュ格子 + screen合成
+    //  ★ 振幅は固定(BASE_AMP)、位相差(phaseShift)のみsyncValueで制御
+    //    syncValue=100 → phaseShift=0 → 3本完全重畳 → screen合成で白
+    //    syncValue=0   → phaseShift=MAX → RGB完全分離
+    // ───────────────────────────────────────────────────────────
+    let syncValue = 0;
+    let animT     = 0;
     let canvas, ctx;
 
-    const WIRE_COLORS = [
-        { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.18)'  },
-        { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.14)'  },
-        { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.14)'  },
+    const BASE_AMP  = 20;   // 振幅は固定（シンクロ率に関係なく波は常に見える）
+    const MAX_PHASE = 2.4;  // 最大位相差[rad]
+    const MESH_STEP = 6;    // メッシュの間隔[px]
+
+    const WIRE = [
+        { stroke: '#ff2200', mesh: 'rgba(255,34,0,0.20)'  },   // R
+        { stroke: '#00ff44', mesh: 'rgba(0,255,68,0.16)'  },   // G
+        { stroke: '#0055ff', mesh: 'rgba(0,85,255,0.16)'  },   // B
     ];
-    const MESH_STEP = 6;
 
     function initCanvas() {
         canvas = document.getElementById('sync-canvas');
@@ -288,132 +332,332 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
     }
-
     function resizeCanvas() {
         if (!canvas) return;
-        canvas.width  = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
+        canvas.width  = canvas.offsetWidth  || canvas.parentElement.offsetWidth  || 200;
+        canvas.height = canvas.offsetHeight || canvas.parentElement.offsetHeight || 120;
     }
 
     function drawWave() {
-        if (!ctx || !canvas || canvas.width === 0) { requestAnimationFrame(drawWave); return; }
+        if (!ctx || !canvas) { requestAnimationFrame(drawWave); return; }
+        if (canvas.width === 0) { resizeCanvas(); requestAnimationFrame(drawWave); return; }
 
         const W = canvas.width, H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        const drift      = Math.max(0, (100 - syncValue) / 100);
-        const amp        = drift * 35;
-        const band       = 1 + drift * 8;
-        const phaseShift = drift * 3.0;
+        // conv: 1=完全分離(sync=0), 0=完全重畳(sync=100)
+        const conv  = Math.max(0, (100 - syncValue) / 100);
+        const band  = 1.5 + conv * 6;   // バンド幅（低sync→太い）
 
-        WIRE_COLORS.forEach(({ stroke, mesh }, i) => {
-            const phase = i * phaseShift;
+        WIRE.forEach(({ stroke, mesh }, i) => {
+            const phase = i * conv * MAX_PHASE;  // ★ここが位相差の核心
+
+            const centres = new Float32Array(W);
+            for (let x = 0; x < W; x++) {
+                centres[x] = H / 2
+                    + Math.sin(x * 0.022 + animT + phase) * BASE_AMP
+                    * Math.sin(animT * 0.28 + i * 0.5);
+            }
+
             ctx.globalCompositeOperation = 'screen';
 
-            const centres = new Array(W);
-            for (let x = 0; x < W; x++) {
-                centres[x] = H / 2 + Math.sin(x * 0.02 + animT + phase) * amp;
-            }
-
-            // Upper edge
-            ctx.strokeStyle = stroke;
-            ctx.lineWidth   = 0.8 + (1 - drift) * 0.7;
+            // upper edge
+            ctx.strokeStyle = stroke; ctx.lineWidth = 1.2;
             ctx.beginPath();
-            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x] - band) : ctx.lineTo(x, centres[x] - band); }
+            for (let x = 0; x < W; x++) x===0 ? ctx.moveTo(x, centres[x]-band) : ctx.lineTo(x, centres[x]-band);
             ctx.stroke();
-
-            // Lower edge
+            // lower edge
             ctx.beginPath();
-            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x] + band) : ctx.lineTo(x, centres[x] + band); }
+            for (let x = 0; x < W; x++) x===0 ? ctx.moveTo(x, centres[x]+band) : ctx.lineTo(x, centres[x]+band);
             ctx.stroke();
-
-            // Mesh
-            ctx.strokeStyle = mesh;
-            ctx.lineWidth   = 1;
+            // vertical mesh
+            ctx.strokeStyle = mesh; ctx.lineWidth = 1;
             for (let x = 0; x < W; x += MESH_STEP) {
-                ctx.beginPath(); ctx.moveTo(x, centres[x] - band); ctx.lineTo(x, centres[x] + band); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(x, centres[x]-band); ctx.lineTo(x, centres[x]+band); ctx.stroke();
             }
-
-            // Spine
-            ctx.strokeStyle = 'rgba(255,255,255,' + (0.3 + (1 - drift) * 0.4) + ')';
-            ctx.lineWidth   = 0.5;
+            // spine (100%時に白く輝く)
+            const alpha = 0.25 + (1 - conv) * 0.65;
+            ctx.strokeStyle = 'rgba(255,255,255,' + alpha + ')';
+            ctx.lineWidth = 0.6;
             ctx.beginPath();
-            for (let x = 0; x < W; x++) { x === 0 ? ctx.moveTo(x, centres[x]) : ctx.lineTo(x, centres[x]); }
+            for (let x = 0; x < W; x++) x===0 ? ctx.moveTo(x, centres[x]) : ctx.lineTo(x, centres[x]);
             ctx.stroke();
         });
 
-        animT += 0.03 + (1 - drift) * 0.02;
+        animT += 0.025;
         requestAnimationFrame(drawWave);
     }
 
-    // ── Clock ─────────────────────────────────────────────────
+    // ── Clock ──────────────────────────────────────────────────
     function startClock() {
         const tick = () => {
             const el = document.getElementById('tree-clock');
             if (el) el.textContent = new Date().toLocaleTimeString('ja-JP', { hour12: false });
         };
-        tick();
-        setInterval(tick, 1000);
+        tick(); setInterval(tick, 1000);
     }
 
-    // ── Sync bars ─────────────────────────────────────────────
+    // ── Sync bars ──────────────────────────────────────────────
     function updateSyncBars() {
-        const container = document.getElementById('sync-bars');
-        if (!container) return;
+        const c = document.getElementById('sync-bars');
+        if (!c) return;
         const filled = Math.round(syncValue / 5);
-        container.innerHTML = Array.from({ length: 20 }, (_, i) => {
-            const cls = i < filled ? (i >= 16 ? 'lit hi' : 'lit') : '';
-            return '<div class="sync-bar ' + cls + '"></div>';
-        }).join('');
+        c.innerHTML = Array.from({ length: 20 }, (_, i) =>
+            '<div class="sync-bar ' + (i < filled ? (i >= 16 ? 'lit hi' : 'lit') : '') + '"></div>'
+        ).join('');
     }
 
-    // ── Ticker ────────────────────────────────────────────────
+    // ── Ticker ─────────────────────────────────────────────────
     const tickerMsgs = [];
     function addToTicker(msg) {
         tickerMsgs.push(msg);
         if (tickerMsgs.length > 12) tickerMsgs.shift();
-        const el = document.querySelector('.log-ticker-inner');
-        if (el) el.textContent = tickerMsgs.join(' ·· ');
+        const el = document.getElementById('log-ticker-inner');
+        if (el) el.textContent = tickerMsgs.join(' \u00b7\u00b7 ');
     }
 
-    // ── Stack color propagation ───────────────────────────────
+    // ── Bus tree stack-color propagation ───────────────────────
     function syncStackColor(node) {
         const stack = node.closest('.node-stack');
         if (!stack) return;
-        const statuses = Array.from(stack.querySelectorAll('.bus-node')).map(n => {
-            if (n.classList.contains('err'))  return 3;
-            if (n.classList.contains('warn')) return 2;
-            if (n.classList.contains('active') || n.classList.contains('ok')) return 1;
-            return 0;
-        });
-        const worst = Math.max(...statuses);
-        const wc = worst === 3 ? 'err' : worst === 2 ? 'warn' : worst === 1 ? '' : 'dim';
-        stack.className = stack.className.replace(/\b(err|warn|dim)\b/g, '').trim();
+        const worst = Math.max(...Array.from(stack.querySelectorAll('.bus-node')).map(n =>
+            n.classList.contains('err') ? 3 : n.classList.contains('warn') ? 2 :
+            (n.classList.contains('active')||n.classList.contains('ok')) ? 1 : 0
+        ));
+        const wc = worst===3?'err': worst===2?'warn': worst===1?'': 'dim';
+        stack.className = stack.className.replace(/\b(err|warn|dim)\b/g,'').trim();
         if (wc) stack.classList.add(wc);
-        stack.querySelectorAll('.stub').forEach(s => { s.className = 'stub ' + wc; });
+        stack.querySelectorAll('.stub').forEach(s => s.className = 'stub '+(wc||''));
+        // wire before stack
+        const prev = stack.previousElementSibling;
+        if (prev && prev.classList.contains('wire')) {
+            prev.className = prev.className.replace(/\b(err|warn|dim)\b/g,'').trim();
+            if (wc) prev.classList.add(wc);
+        }
     }
 
-    // ════════════════════════════════════════════════════════
-    //  window.NERV  — app.js から呼べるグローバル API
-    // ════════════════════════════════════════════════════════
+    // ── ECS bar helper ─────────────────────────────────────────
+    function setECSBar(barId, textId, current, total) {
+        const pct = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+        const bar = document.getElementById(barId);
+        const txt = document.getElementById(textId);
+        if (bar) bar.style.width = pct + '%';
+        if (txt) txt.textContent = current + '/' + total + ' (' + pct + '%)';
+    }
+
+    // ── Log parser ─────────────────────────────────────────────
+    const LOG_PARSERS = [
+        {
+            pattern: /LLM_require:(.+)/,
+            level: 'critical',
+            handle(match) {
+                const iface = match[1].trim();
+                showPopup(
+                    'LLM INTERFACE REQUEST',
+                    'LLM is requesting interface:\n\n[ ' + iface + ' ]\n\nThis interface is not currently registered.',
+                    [
+                        { label: 'REGISTER', cls: 'ok',  cb: () => window.NERV.setNodeStatus(iface.toLowerCase().replace(/\s/g,'-'), 'warn', 'PENDING\nREGISTERING...') },
+                        { label: 'REJECT',   cls: 'err', cb: () => window.NERV.postLog('LLM_require: ' + iface + ' REJECTED', 'warn') },
+                    ]
+                );
+                return { display: 'LLM_require: ' + iface + ' [POPUP]', level: 'critical' };
+            }
+        },
+        {
+            pattern: /MISMATCH:(.+?)DIFF=([\d.]+)/,
+            level: 'warn',
+            handle(match) {
+                if (parseFloat(match[2]) > 0.4) window.NERV.setMagiVerdicts(['agree','agree','reject']);
+                return { display: match[0], level: 'warn' };
+            }
+        },
+        {
+            pattern: /^ERROR:/i,
+            level: 'critical',
+            handle(match, raw) { return { display: raw, level: 'critical' }; }
+        },
+        {
+            pattern: /^WARN:/i,
+            level: 'warn',
+            handle(match, raw) { return { display: raw, level: 'warn' }; }
+        },
+    ];
+
+    function parseAndLog(raw) {
+        for (const p of LOG_PARSERS) {
+            const m = raw.match(p.pattern);
+            if (m) return p.handle(m, raw);
+        }
+        return { display: raw, level: 'default' };
+    }
+
+    // ── Popup ──────────────────────────────────────────────────
+    function showPopup(title, body, buttons) {
+        const old = document.getElementById('nerv-popup');
+        if (old) old.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'nerv-popup';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'background:#0c0c0c;border:1px solid #ff6600;min-width:320px;max-width:480px;font-family:"Share Tech Mono",monospace;overflow:hidden';
+
+        const slash = document.createElement('div');
+        slash.style.cssText = 'height:5px;background:repeating-linear-gradient(-45deg,#000 0 3px,#ff6600 3px 6px)';
+        box.appendChild(slash);
+
+        const hdr = document.createElement('div');
+        hdr.style.cssText = 'display:flex;align-items:center;border-bottom:1px solid #222;padding:4px 8px;gap:8px';
+        hdr.innerHTML = '<span style="font-family:Orbitron,monospace;font-size:8px;font-weight:700;letter-spacing:2px;background:#ff6600;color:#000;padding:2px 8px">' + title + '</span>';
+        const closeBtn = document.createElement('span');
+        closeBtn.textContent = '\u00d7';
+        closeBtn.style.cssText = 'margin-left:auto;cursor:pointer;color:#666;font-size:16px';
+        closeBtn.onclick = () => overlay.remove();
+        hdr.appendChild(closeBtn);
+        box.appendChild(hdr);
+
+        const bodyEl = document.createElement('div');
+        bodyEl.style.cssText = 'padding:12px 14px;font-size:10px;color:#ccc;line-height:1.8;white-space:pre-wrap';
+        bodyEl.textContent = body;
+        box.appendChild(bodyEl);
+
+        if (buttons && buttons.length) {
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:4px;padding:8px;border-top:1px solid #222';
+            buttons.forEach(b => {
+                const btn = document.createElement('button');
+                btn.textContent = b.label;
+                const c = b.cls==='ok'?'#00cc66': b.cls==='err'?'#cc0000':'#ff6600';
+                btn.style.cssText = 'flex:1;padding:4px 8px;background:transparent;border:1px solid '+c+';color:'+c+';font-family:"Share Tech Mono",monospace;font-size:9px;letter-spacing:1px;cursor:pointer';
+                btn.onmouseenter = () => { btn.style.background=c; btn.style.color='#000'; };
+                btn.onmouseleave = () => { btn.style.background='transparent'; btn.style.color=c; };
+                btn.onclick = () => { b.cb(); overlay.remove(); };
+                btnRow.appendChild(btn);
+            });
+            box.appendChild(btnRow);
+        }
+
+        overlay.appendChild(box);
+        overlay.addEventListener('click', e => { if (e.target===overlay) overlay.remove(); });
+        document.body.appendChild(overlay);
+    }
+
+    // ── Device registry ────────────────────────────────────────
+    const _devices = new Map(); // id → { name, status, killed }
+    function renderDevices() {
+        const list = document.getElementById('device-list');
+        if (!list) return;
+        if (_devices.size === 0) {
+            list.innerHTML = '<div style="font-size:8px;color:#333;padding:4px;letter-spacing:1px">NO DEVICES</div>';
+            return;
+        }
+        list.innerHTML = '';
+        _devices.forEach((dev, id) => {
+            const row = document.createElement('div');
+            row.className = 'device-row ' + (dev.killed ? 'dim' : dev.statusClass || 'active');
+            if (dev.killed) row.classList.add('device-killed');
+
+            const nameLine = document.createElement('div');
+            nameLine.className = 'device-name';
+            nameLine.innerHTML = '<span class="status-dot ' + (dev.killed ? 'dim' : (dev.statusClass==='err'?'err':dev.statusClass==='warn'?'warn':'ok')) + '"></span>' + id.toUpperCase();
+            row.appendChild(nameLine);
+
+            const statusLine = document.createElement('div');
+            statusLine.className = 'device-status';
+            statusLine.textContent = dev.status || '--';
+            row.appendChild(statusLine);
+
+            if (!dev.killed) {
+                const kill = document.createElement('button');
+                kill.className = 'kill-btn';
+                kill.textContent = 'KILL';
+                kill.onclick = () => window.NERV.killDevice(id);
+                row.appendChild(kill);
+            }
+            list.appendChild(row);
+        });
+    }
+
+    // ── Pipeline stage helper ──────────────────────────────────
+    const PIPE_IDS = ['pipe-iot','pipe-ecs','pipe-llm','pipe-meta','pipe-js'];
+    function setPipelineStage(stageIndex, stateClass) {
+        PIPE_IDS.forEach((id, i) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.className = 'pipe-stage' + (i < stageIndex ? ' done' : i === stageIndex ? ' ' + stateClass : '');
+        });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  window.NERV — グローバル API
+    // ══════════════════════════════════════════════════════════
     window.NERV = {
 
-        /** バスノードの状態を更新 */
+        // ── Signal bus node ──────────────────────────────────
         setNodeStatus(id, status, detail) {
             const node = document.querySelector('.bus-node[data-node-id="' + id + '"]');
             if (!node) return;
-            node.className = node.className.replace(/\b(active|ok|err|warn|dim)\b/g, '').trim();
+            node.className = node.className.replace(/\b(active|ok|err|warn|dim)\b/g,'').trim();
             node.classList.add('bus-node', status);
             const dot = node.querySelector('.status-dot');
-            if (dot) dot.className = 'status-dot ' + (status === 'err' ? 'err' : status === 'warn' ? 'warn' : status === 'dim' ? 'dim' : 'ok');
+            if (dot) dot.className = 'status-dot ' + (status==='err'?'err': status==='warn'?'warn': status==='dim'?'dim':'ok');
             if (detail !== undefined) {
                 const d = node.querySelector('.bus-node-detail');
-                if (d) d.innerHTML = detail.replace('\n', '<br>');
+                if (d) d.innerHTML = detail.replace(/\n/g,'<br>');
             }
             syncStackColor(node);
         },
 
-        /** シンクロ率 0-100 を更新 */
+        /**
+         * バスツリーにノードを動的に追加（LLMなどが新インターフェースを要求したとき）
+         * @param id         data-node-id
+         * @param label      表示名
+         * @param status     'active'|'warn'|'err'|'dim'
+         * @param detail     2行テキスト（\n区切り）
+         * @param stackId    既存スタックに追加する場合はそのdata-stack-id、なければ新ワイヤー+スタック生成
+         */
+        addBusNode(id, label, status, detail, stackId) {
+            // 既存チェック
+            if (document.querySelector('.bus-node[data-node-id="' + id + '"]')) return;
+
+            const container = document.getElementById('bus-container');
+            if (!container) return;
+
+            const dotClass = status==='err'?'err': status==='warn'?'warn': status==='dim'?'dim':'ok';
+            const nodeHTML = '<div class="bus-node ' + status + '" data-node-id="' + id + '">'
+                + '<div class="bus-node-name"><span class="status-dot ' + dotClass + '"></span>' + label + '</div>'
+                + '<div class="bus-node-detail">' + (detail||'').replace(/\n/g,'<br>') + '</div>'
+                + '</div>';
+
+            if (stackId) {
+                const stack = document.querySelector('.node-stack[data-stack-id="' + stackId + '"]');
+                if (stack) {
+                    const row = document.createElement('div');
+                    row.className = 'node-row';
+                    const stubCls = status==='err'?'err': status==='warn'?'warn': status==='dim'?'dim':'';
+                    row.innerHTML = '<div class="stub ' + stubCls + '"></div>' + nodeHTML;
+                    stack.appendChild(row);
+                    if (!stack.classList.contains('multi')) stack.classList.add('multi');
+                    syncStackColor(row.querySelector('.bus-node'));
+                    return;
+                }
+            }
+            // 新ワイヤー + スタック
+            const wire = document.createElement('div');
+            wire.className = 'wire md ' + (status==='dim'?'dim': status==='err'?'err': status==='warn'?'warn':'');
+            const stack = document.createElement('div');
+            stack.className = 'node-stack';
+            stack.setAttribute('data-stack-id', id + '-stack');
+            const row = document.createElement('div');
+            row.className = 'node-row';
+            row.innerHTML = nodeHTML;
+            stack.appendChild(row);
+            container.appendChild(wire);
+            container.appendChild(stack);
+        },
+
+        // ── Sync ratio ───────────────────────────────────────
         setSyncRatio(value) {
             syncValue = Math.max(0, Math.min(100, value));
             const display = document.getElementById('sync-display');
@@ -424,63 +668,80 @@
             updateSyncBars();
         },
 
-        /** MAGI 判定を更新 ['agree'|'reject', ...] */
+        // ── MAGI verdicts ────────────────────────────────────
         setMagiVerdicts(verdicts) {
-            const chips = document.querySelectorAll('.magi-chip');
-            chips.forEach((chip, i) => {
-                chip.className = 'magi-chip ' + (verdicts[i] === 'agree' ? 'agree' : verdicts[i] === 'reject' ? 'reject' : '');
+            ['magi-1','magi-2','magi-3'].forEach((id, i) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.className = 'magi-chip ' + (verdicts[i]==='agree'?'agree': verdicts[i]==='reject'?'reject':'');
             });
-            const rejectCount = verdicts.filter(v => v === 'reject').length;
-            const verdict = document.getElementById('magi-verdict');
-            if (verdict) {
-                verdict.innerHTML = rejectCount === 0
-                    ? '<span class="acc" style="color:var(--nerv-green)">UNANIMOUS AGREE</span>'
-                    : '<span class="acc">DISAGREE: ' + rejectCount + '/3</span>';
+            const rc = verdicts.filter(v => v==='reject').length;
+            const el = document.getElementById('magi-verdict');
+            if (el) el.innerHTML = rc===0
+                ? '<span class="acc" style="color:var(--nerv-green)">UNANIMOUS AGREE</span>'
+                : '<span class="acc">DISAGREE: ' + rc + '/3</span>';
+        },
+
+        // ── Objective + pipeline progress ────────────────────
+        /**
+         * @param task         タスク名
+         * @param progress     0-100 (全体プログレスバー)
+         * @param pipelineStep 0=IOT, 1=ECS, 2=LLM, 3=META, 4=JS  (-1=reset)
+         * @param pipeState    'active'|'done'|'err' (現在ステージの状態)
+         */
+        setObjective(task, progress, pipelineStep, pipeState) {
+            const el = document.getElementById('obj-task');
+            if (el && task !== undefined) el.textContent = task;
+            const fill = document.getElementById('obj-progress');
+            if (fill && progress !== undefined) fill.style.width = Math.min(100, Math.max(0, progress)) + '%';
+            if (pipelineStep !== undefined && pipelineStep >= 0) {
+                setPipelineStage(pipelineStep, pipeState || 'active');
+            } else if (pipelineStep === -1) {
+                PIPE_IDS.forEach(id => { const e=document.getElementById(id); if(e) e.className='pipe-stage'; });
             }
         },
 
-        /** 現在のタスクとプログレスバーを更新 */
-        setObjective(task, progress) {
-            const el = document.getElementById('obj-task');
-            if (el) el.textContent = task;
-            const fill = document.querySelector('.progress-fill');
-            if (fill) fill.style.width = Math.min(100, Math.max(0, progress)) + '%';
-        },
-
-        /** Next Plan を更新 [{text, level}] level: 'ok'|'warn'|'err' */
+        // ── Next Plan ────────────────────────────────────────
         setPlan(items) {
             const el = document.getElementById('obj-plan');
             if (!el) return;
-            el.innerHTML = items.slice(0, 3).map(i =>
-                '<span class="' + (i.level || '') + '">&gt; ' + i.text + '</span>'
+            el.innerHTML = items.slice(0,3).map(i =>
+                '<span class="'+(i.level||'')+'">&gt; '+i.text+'</span>'
             ).join('<br>');
         },
 
-        /** ECS 整合性を更新 */
-        setECSStats(objects, components, systemsOk) {
-            const el = document.getElementById('obj-ecs');
-            if (!el) return;
-            const cls = systemsOk ? 'ok' : 'err';
-            el.innerHTML =
-                '<span class="' + cls + '">&gt; OBJECTS: ' + objects + '</span><br>' +
-                '<span class="' + cls + '">&gt; COMPONENTS: ' + components + '</span><br>' +
-                '<span class="' + cls + '">&gt; SYSTEMS: ' + (systemsOk ? 'OK' : 'FAULT') + '</span>';
+        // ── ECS bars ─────────────────────────────────────────
+        /**
+         * @param objects    現在のオブジェクト数
+         * @param components 現在のコンポーネント数
+         * @param devices    現在のデバイス数
+         * @param maxObjects 最大オブジェクト数（allの値）
+         */
+        setECSStats(objects, components, devices, maxObjects) {
+            const maxObj  = maxObjects  || Math.max(objects, 1);
+            const maxComp = maxObj * 3;
+            const maxDev  = Math.max(devices, 1);
+            setECSBar('ecs-obj-bar',  'ecs-obj-text',  objects,    maxObj);
+            setECSBar('ecs-comp-bar', 'ecs-comp-text', components, maxComp);
+            setECSBar('ecs-dev-bar',  'ecs-dev-text',  devices,    maxDev);
         },
 
-        /** Priority Log にエントリを追加 */
+        // ── Priority Log ─────────────────────────────────────
         postLog(message, level) {
+            const { display, level: pLevel } = parseAndLog(message);
+            const effectiveLevel = (level && level !== 'default') ? level : pLevel;
             const grid = document.getElementById('log-grid');
             if (!grid) return;
             const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
             const div = document.createElement('div');
-            div.className = 'log-entry ' + (level === 'default' || !level ? '' : level);
-            div.textContent = '> ' + ts + ' ' + message;
+            div.className = 'log-entry ' + (effectiveLevel === 'default' ? '' : effectiveLevel);
+            div.textContent = '> ' + ts + ' ' + display;
             grid.prepend(div);
             while (grid.children.length > 6) grid.lastChild.remove();
-            addToTicker(message);
+            addToTicker(display);
         },
 
-        /** ストリーミング状態を切り替え（START ボタン ↔ ENTITY SYNC バッジ） */
+        // ── Streaming state ──────────────────────────────────
         setStreamingState(isStreaming) {
             const btn   = document.getElementById('stream-start-btn');
             const badge = document.getElementById('entity-badge');
@@ -488,23 +749,21 @@
             if (badge) badge.style.display = isStreaming ? 'block' : 'none';
             window.NERV.setNodeStatus('camera',
                 isStreaming ? 'active' : 'warn',
-                isStreaming ? 'STREAM: ACTIVE\n640 × 480' : 'STREAM: STOPPED\nAWAITING'
+                isStreaming ? 'STREAM: ACTIVE\n640 \u00d7 480' : 'STREAM: STOPPED\nAWAITING'
             );
         },
 
-        /** カメラ映像を video 要素にセット */
         attachCameraStream(stream) {
             const video = document.getElementById('camera-preview');
-            if (video) { video.srcObject = stream; video.play().catch(() => {}); }
+            if (video) { video.srcObject = stream; video.play().catch(()=>{}); }
         },
 
-        /** バウンディングボックスをカメラビューに描画 */
         renderDetection(label, entityId, bboxNorm) {
             const view = document.getElementById('camera-view');
             if (!view) return;
             const W = view.clientWidth, H = view.clientHeight;
             const [nx, ny, nw, nh] = bboxNorm;
-            let box = view.querySelector('.detection-box[data-entity="' + entityId + '"]');
+            let box = view.querySelector('.detection-box[data-entity="'+entityId+'"]');
             if (!box) {
                 box = document.createElement('div');
                 box.className = 'detection-box';
@@ -514,26 +773,70 @@
                 box.appendChild(lbl);
                 view.appendChild(box);
             }
-            box.style.left = (nx * W) + 'px'; box.style.top    = (ny * H) + 'px';
-            box.style.width = (nw * W) + 'px'; box.style.height = (nh * H) + 'px';
+            box.style.left=(nx*W)+'px'; box.style.top=(ny*H)+'px';
+            box.style.width=(nw*W)+'px'; box.style.height=(nh*H)+'px';
             const lbl = box.querySelector('.detection-label');
             if (lbl) lbl.textContent = label.toUpperCase() + ' [' + entityId + ']';
         },
 
-        /** 全バウンディングボックスを消去 */
         clearDetections() {
             const view = document.getElementById('camera-view');
             if (view) view.querySelectorAll('.detection-box').forEach(el => el.remove());
         },
+
+        // ── Device management ────────────────────────────────
+        /**
+         * @param id          デバイスID
+         * @param name        表示名
+         * @param status      ステータス文字列 e.g. "転倒検知", "NORMAL"
+         * @param statusClass 'active'|'warn'|'err'
+         */
+        registerDevice(id, name, status, statusClass) {
+            _devices.set(id, { name, status: status || '--', statusClass: statusClass || 'active', killed: false });
+            renderDevices();
+            window.NERV.postLog('DEVICE: ' + id + ' registered [' + (statusClass||'active').toUpperCase() + ']', 'ok');
+        },
+
+        updateDeviceStatus(id, status, statusClass) {
+            if (!_devices.has(id)) return;
+            const dev = _devices.get(id);
+            dev.status = status;
+            if (statusClass) dev.statusClass = statusClass;
+            _devices.set(id, dev);
+            renderDevices();
+        },
+
+        killDevice(id) {
+            if (!_devices.has(id)) return;
+            const dev = _devices.get(id);
+            dev.killed = true;
+            _devices.set(id, dev);
+            renderDevices();
+            window.NERV.postLog('KILL: ' + id + ' terminated', 'critical');
+            showPopup('DEVICE KILLED', 'Device [ ' + id.toUpperCase() + ' ] has been terminated.\nAll interfaces disconnected.', []);
+        },
+
+        killAllDevices() {
+            _devices.forEach((_, id) => {
+                const dev = _devices.get(id);
+                dev.killed = true;
+                _devices.set(id, dev);
+            });
+            renderDevices();
+            window.NERV.postLog('KILL ALL: all devices terminated', 'critical');
+        },
+
+        // ── Popup (external) ─────────────────────────────────
+        showPopup(title, body, buttons) { showPopup(title, body, buttons); },
     };
 
-    // ── Boot ──────────────────────────────────────────────────
+    // ── Boot ───────────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
         initCanvas();
         startClock();
         drawWave();
         updateSyncBars();
-        console.log('✅ [NERV] UI inline controller ready. window.NERV API available.');
+        console.log('\u2705 [NERV] UI ready — window.NERV API available');
     });
 
 })();

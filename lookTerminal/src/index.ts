@@ -67,6 +67,7 @@ export class WebTerminal {
                 this.magi.setNodeStatus('network', 'active', 'CONNECTING...');
                 await this.webRTC.connect();
                 this.magi.setNodeStatus('network', 'active', 'LINKED');
+                this.magi.setObjective(undefined, undefined, 0, 'done'); // IOT step done
                 this.magi.postLog('WebRTC: connected', 'ok');
             }
         } catch (e: any) {
@@ -95,6 +96,7 @@ export class WebTerminal {
             return;
         }
 
+        this.magi.setObjective(undefined, undefined, 2, 'active'); // LLM stage active
         console.log("MEKOU is thinking...");
         const ecsSnapshot = this.objectManager.rootObjects.map(o => ({ 
             id: (o as any).id || (o as any).name || "entity" 
@@ -127,12 +129,13 @@ export class WebTerminal {
 
                 if (violations.length === 0) {
                     // --- 検閲合格：リリース ---
-                    this.magi.setObjective(res.tasks?.now || "RELEASED", 1.0);
+                    this.magi.setObjective(res.tasks?.now || "RELEASED", 100, 4, "done");
                     this.executeJS(res.js);
                     this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
                 } else {
                     // --- 検閲不合格：LLMに突き返して再考 (フィードバック) ---
                     const errorMsg = `Violation detected: ${violations.join(', ')}`;
+                    this.magi.setObjective(undefined, undefined, 3, "err");
                     this.magi.postLog(`META-PROTOCOL: REJECTED. ${violations[0]}`, "warn");
                     
                     this._lastError = errorMsg;
@@ -172,7 +175,9 @@ export class WebTerminal {
             if (stream) {
                 this.magi.attachCameraStream(stream);
                 this.magi.setStreamingState(true);
+                this.magi.registerDevice('cam-mobile', 'MOBILE CAM', 'STREAMING', 'active');
                 this.magi.postLog('Camera: active', 'ok');
+                this.magi.setObjective(undefined, undefined, 1, 'done'); // ECS step done
             }
         } catch (e: any) {
             this.magi.postLog(`Camera ERROR: ${e.message}`, 'critical');
@@ -244,6 +249,7 @@ export class WebTerminal {
             const components = currentObjs * 3;
             const activeDevices = (this.webRTC?.isConnected() ? 1 : 0) + 2;
             this.ECSSetter.setECSStats(currentObjs, components, activeDevices);
+            this.magi.setECSStats(currentObjs, components, activeDevices, Math.max(currentObjs, 5));
             this.ECSSetter._lastObjectsCount = currentObjs;
         }
     };
@@ -262,6 +268,7 @@ export class WebTerminal {
                 obj = this.objectManager.createGameObject(entity_id);
                 this._entityCount++;
                 this.magi.postLog(`New Entity: ${label}`, 'ok');
+                this.magi.setNodeStatus('detection', 'active', 'YOLO: RUNNING\nENTITIES: ' + this._entityCount);
             }
 
             const nx = (bbox[0] / 640) * 2 - 1;

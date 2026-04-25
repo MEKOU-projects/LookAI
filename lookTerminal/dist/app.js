@@ -7,20 +7,23 @@ var e = class {
 	setNodeStatus(e, t, n) {
 		this.nerv?.setNodeStatus(e, t, n);
 	}
+	addBusNode(e, t, n, r, i) {
+		this.nerv?.addBusNode(e, t, n, r, i);
+	}
 	setSyncRatio(e) {
 		this.nerv?.setSyncRatio(e);
 	}
 	setMagiVerdicts(e) {
 		this.nerv?.setMagiVerdicts(e);
 	}
-	setObjective(e, t) {
-		this.nerv?.setObjective(e, t);
+	setObjective(e, t, n, r) {
+		this.nerv?.setObjective(e, t, n, r);
 	}
 	setPlan(e) {
 		this.nerv?.setPlan(e);
 	}
-	setECSStats(e, t, n) {
-		this.nerv?.setECSStats(e, t, n);
+	setECSStats(e, t, n, r) {
+		this.nerv?.setECSStats(e, t, n, r);
 	}
 	postLog(e, t = "default") {
 		this.nerv?.postLog(e, t);
@@ -36,6 +39,21 @@ var e = class {
 	}
 	clearDetections() {
 		this.nerv?.clearDetections();
+	}
+	registerDevice(e, t, n, r) {
+		this.nerv?.registerDevice(e, t, n, r);
+	}
+	updateDeviceStatus(e, t, n) {
+		this.nerv?.updateDeviceStatus(e, t, n);
+	}
+	killDevice(e) {
+		this.nerv?.killDevice(e);
+	}
+	killAllDevices() {
+		this.nerv?.killAllDevices();
+	}
+	showPopup(e, t, n) {
+		this.nerv?.showPopup(e, t, n);
 	}
 	boot(e) {}
 }, t = "http://localhost:6333", n = "http://localhost:11434", r = "mekou_exp";
@@ -153,7 +171,7 @@ var c = class {
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
 		if (e) try {
-			this.webRTC = e.getComponent("WebRTC") || e.addComponent("WebRTC"), this.webRTC && (this.magi.setNodeStatus("network", "active", "CONNECTING..."), await this.webRTC.connect(), this.magi.setNodeStatus("network", "active", "LINKED"), this.magi.postLog("WebRTC: connected", "ok"));
+			this.webRTC = e.getComponent("WebRTC") || e.addComponent("WebRTC"), this.webRTC && (this.magi.setNodeStatus("network", "active", "CONNECTING..."), await this.webRTC.connect(), this.magi.setNodeStatus("network", "active", "LINKED"), this.magi.setObjective(void 0, void 0, 0, "done"), this.magi.postLog("WebRTC: connected", "ok"));
 		} catch (e) {
 			this.magi.postLog(`WebRTC ERROR: ${e.message}`, "critical");
 		}
@@ -171,7 +189,7 @@ var c = class {
 			this.magi.postLog("META: MAX RETRIES. ABORTED.", "critical");
 			return;
 		}
-		console.log("MEKOU is thinking...");
+		this.magi.setObjective(void 0, void 0, 2, "active"), console.log("MEKOU is thinking...");
 		let t = {
 			ECS: this.objectManager.rootObjects.map((e) => ({ id: e.id || e.name || "entity" })),
 			META: {
@@ -186,10 +204,10 @@ var c = class {
 			let r = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocolMain");
 			if (r) {
 				let n = JSON.stringify(this.getMetaInterface()), i = r.inspection(t.js, n);
-				if (i.length === 0) this.magi.setObjective(t.tasks?.now || "RELEASED", 1), this.executeJS(t.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
+				if (i.length === 0) this.magi.setObjective(t.tasks?.now || "RELEASED", 100, 4, "done"), this.executeJS(t.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
 				else {
 					let t = `Violation detected: ${i.join(", ")}`;
-					this.magi.postLog(`META-PROTOCOL: REJECTED. ${i[0]}`, "warn"), this._lastError = t, this._lastFeedback = "Your previous JS code violates system constraints.", await this.callLLM(e + 1);
+					this.magi.setObjective(void 0, void 0, 3, "err"), this.magi.postLog(`META-PROTOCOL: REJECTED. ${i[0]}`, "warn"), this._lastError = t, this._lastFeedback = "Your previous JS code violates system constraints.", await this.callLLM(e + 1);
 				}
 			} else this.executeJS(t.js);
 		} catch {
@@ -206,7 +224,7 @@ var c = class {
 	async _startCamera() {
 		try {
 			let e = await this.objectManager.createGameObject("camera").addComponent("Camera").getStream();
-			e && (this.magi.attachCameraStream(e), this.magi.setStreamingState(!0), this.magi.postLog("Camera: active", "ok"));
+			e && (this.magi.attachCameraStream(e), this.magi.setStreamingState(!0), this.magi.registerDevice("cam-mobile", "MOBILE CAM", "STREAMING", "active"), this.magi.postLog("Camera: active", "ok"), this.magi.setObjective(void 0, void 0, 1, "done"));
 		} catch (e) {
 			this.magi.postLog(`Camera ERROR: ${e.message}`, "critical");
 		}
@@ -241,7 +259,7 @@ var c = class {
 		let r = this.objectManager.rootObjects.length;
 		if (r !== this.ECSSetter._lastObjectsCount) {
 			let e = r * 3, t = +!!this.webRTC?.isConnected() + 2;
-			this.ECSSetter.setECSStats(r, e, t), this.ECSSetter._lastObjectsCount = r;
+			this.ECSSetter.setECSStats(r, e, t), this.magi.setECSStats(r, e, t, Math.max(r, 5)), this.ECSSetter._lastObjectsCount = r;
 		}
 	};
 	_entityCount = 0;
@@ -249,7 +267,7 @@ var c = class {
 		console.log("Received Data:", e);
 		try {
 			let t = e.payload.replace("DETECTED:", ""), { label: n, entity_id: r, bbox: i, confidence: a } = JSON.parse(t), o = this.objectManager.findGameObject(r);
-			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n}`, "ok"));
+			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n}`, "ok"), this.magi.setNodeStatus("detection", "active", "YOLO: RUNNING\nENTITIES: " + this._entityCount));
 			let s = i[0] / 640 * 2 - 1, c = -(i[1] / 480 * 2 - 1), l = o.getComponent("Transform");
 			l?.position && (l.position.x = s, l.position.y = c), a !== void 0 && (this._lastConfidenceSync = 40 + a * 60);
 		} catch {
