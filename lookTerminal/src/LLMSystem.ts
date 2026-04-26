@@ -41,7 +41,8 @@ export async function processMessage(text: string): Promise<string> {
                           "thought": { "analysis": "string", "plan": "string" },
                           "tasks": { "now": "string", "next": "string" },
                           "js": "string",
-                          "text": "string"
+                          "text": "string",
+                          "warnings": ["string"]
                         }
                         背景知識: ${relevantContext}`
                     },

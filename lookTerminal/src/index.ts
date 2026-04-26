@@ -11,8 +11,36 @@ import {
 } from '@mekou/engine-api';
 
 import { MagiTerminal } from './magiSystem';
-import { processMessage, validateMekouOutput } from './LLMSystem';
+import { processMessage } from './LLMSystem';
 import { ECSSetter } from './ECSSetter';
+
+// MetaProtocol の型制約仙様
+interface ArgSchema {
+    name: string;
+    type: 'string' | 'number' | 'boolean';
+    min?: number;       // number型の下限
+    max?: number;       // number型の上限
+    maxLength?: number; // string型の最大長
+    enum?: string[];    // 許可値リスト
+}
+interface FnSchema {
+    _type: 'function';
+    args: ArgSchema[];
+    impl: (...args: any[]) => void;
+}
+interface NsSchema {
+    _type: 'namespace';
+    [fn: string]: FnSchema | string;
+}
+type MetaInterfaceSchema = { [ns: string]: NsSchema };
+
+// LLMが要求する可能性のあるinterface変更事項
+interface InterfaceChangeRequest {
+    type: 'add_function' | 'modify_constraint' | 'add_namespace';
+    target: string;     // 'notification.show' など
+    reason: string;
+    proposed: string;   // 提案内容
+}
 
 export const initGame = (objectManager: IObjectManager) => {
     try {
@@ -75,18 +103,90 @@ export class WebTerminal {
         }
     }
 
-    /** LLMの手足となるAPIカタログ */
-    private getMetaInterface(): any {
+    /** LLMの手足となるAPIカタログ — MetaProtocolの型制約付き */
+    private getMetaInterface(): MetaInterfaceSchema {
         return {
+            // プログラムが実装する関数
             notification: {
-                show: (msg: string, color: string) => {
-                    this.magi.postLog(`LLM_MSG: ${msg}`, 'ok');
+                _type: 'namespace',
+                show: {
+                    _type: 'function',
+                    args: [
+                        { name: 'msg',   type: 'string', maxLength: 200 },
+                        { name: 'color', type: 'string', enum: ['green', 'red', 'orange', 'white'] },
+                    ],
+                    impl: (msg: string, _color: string) => {
+                        this.magi.postLog(`LLM_MSG: ${msg}`, 'ok');
+                    }
                 }
             },
             system: {
-                reboot_detection: () => this.magi.postLog("Detection Rebooting...", "warn")
+                _type: 'namespace',
+                reboot_detection: {
+                    _type: 'function',
+                    args: [],
+                    impl: () => {
+                        this.magi.postLog('Detection Rebooting...', 'warn');
+                        this.magi.setNodeStatus('detection', 'warn', 'REBOOTING...');
+                    }
+                },
+                set_sync_target: {
+                    _type: 'function',
+                    args: [
+                        { name: 'value', type: 'number', min: 0, max: 100 }
+                    ],
+                    impl: (value: number) => {
+                        this._lastConfidenceSync = value;
+                    }
+                }
             }
         };
+    }
+
+    /**
+     * MetaProtocol inspection — LLM出力のJSを実行前に検証する
+     * ① 使用している関数を抽出し、未登録の呼び出しがないか確認
+     * ② 型・範囲制約が守られているか確認
+     * @returns violations 配列（空なら合格）
+     */
+    private inspectLLMCode(code: string, schema: MetaInterfaceSchema): string[] {
+        const violations: string[] = [];
+
+        // ① 未登録関数の呼び出しチェック
+        // META.xxx.yyy() の形式で呼び出しているメソッドを抑制
+        const callPattern = /META\.(\w+)\.(\w+)\s*\(/g;
+        let match;
+        while ((match = callPattern.exec(code)) !== null) {
+            const [, ns, fn] = match;
+            const nsSchema = (schema as any)[ns];
+            if (!nsSchema) {
+                violations.push(`UNKNOWN_NAMESPACE: META.${ns}`);
+                continue;
+            }
+            const fnSchema = nsSchema[fn];
+            if (!fnSchema || fnSchema._type !== 'function') {
+                violations.push(`UNKNOWN_FUNCTION: META.${ns}.${fn}`);
+            }
+        }
+
+        // ② 導ずないリターン値のチェックテーブル（導ずない変数山山なそにも導ずないリターン値）
+        // document/window直接指定の禁止
+        if (/\b(document|window|fetch|XMLHttpRequest|eval|Function)\b/.test(code)) {
+            violations.push('FORBIDDEN_GLOBAL: direct DOM/fetch access not allowed');
+        }
+
+        // ③ 数値リテラルの範囲チェック（簡易版）
+        // set_sync_target(150) などの明らかな範囲越えを検出
+        const numericCallPattern = /META.system.set_sync_target\s*\(\s*(-?[\d.]+)\s*\)/g;
+        let numMatch;
+        while ((numMatch = numericCallPattern.exec(code)) !== null) {
+            const val = parseFloat(numMatch[1]);
+            if (val < 0 || val > 100) {
+                violations.push(`OUT_OF_RANGE: set_sync_target(${val}) must be 0-100`);
+            }
+        }
+
+        return violations;
     }
 
     async callLLM(retryCount = 0): Promise<void> {
@@ -256,34 +356,64 @@ export class WebTerminal {
 
     private _entityCount = 0;
     private _handleData(data: any): void {
-        console.log("Received Data:", data);
-        // ... (以前の handleData ロジックを維持)
+        // Rust から来るデータ形式:
+        // { type: "detection", payload: "DETECTED:{\"label\":\"cat\", ...}" }
         try {
-            const rawJson = data.payload.replace('DETECTED:', '');
+            if (data.type !== 'detection') return;
+            const rawJson = (data.payload as string).replace(/^DETECTED:/, '');
             const detection = JSON.parse(rawJson);
             const { label, entity_id, bbox, confidence } = detection;
 
+            // ECS: 新規エンティティなら生成
             let obj = this.objectManager.findGameObject(entity_id);
             if (!obj) {
                 obj = this.objectManager.createGameObject(entity_id);
                 this._entityCount++;
-                this.magi.postLog(`New Entity: ${label}`, 'ok');
-                this.magi.setNodeStatus('detection', 'active', 'YOLO: RUNNING\nENTITIES: ' + this._entityCount);
+                this.magi.postLog(`New Entity: ${label} [${entity_id}]`, 'ok');
+                this.magi.setNodeStatus('detection', 'active',
+                    `YOLO: RUNNING\nENTITIES: ${this._entityCount}`);
             }
 
+            // Transform 同期: YOLO pixel (640×480) → -1..1
             const nx = (bbox[0] / 640) * 2 - 1;
             const ny = -((bbox[1] / 480) * 2 - 1);
             const transform = obj.getComponent<Transform>('Transform');
             if (transform?.position) {
                 transform.position.x = nx;
                 transform.position.y = ny;
+                transform.position.z = -2.0;
             }
 
+            // BBox をUIにレンダリング (0..1正規化)
+            this.magi.renderDetection(label, entity_id, [
+                bbox[0] / 640,
+                bbox[1] / 480,
+                bbox[2] / 640,
+                bbox[3] / 480,
+            ]);
+
+            // confidence → sync ratio
             if (confidence !== undefined) {
                 this._lastConfidenceSync = 40 + confidence * 60;
+                // MAGI 投票
+                const v2: 'agree' | 'reject' = confidence > 0.5 ? 'agree' : 'reject';
+                const v3: 'agree' | 'reject' = confidence > 0.7 ? 'agree' : 'reject';
+                this.magi.setMagiVerdicts(['agree', v2, v3]);
+                if (confidence < 0.5) {
+                    this.magi.postLog(
+                        `MISMATCH: ${label} DIFF=${(1 - confidence).toFixed(2)}`, 'warn'
+                    );
+                }
             }
-        } catch (e) {
-            this.magi.postLog('Detection Parse Error', 'critical');
+
+            // LLM に投げるタイミング（新エンティティ検出時）
+            // 非同期で呼ぶが awaitしない（updateループを止めない）
+            if (this._entityCount % 5 === 0 && this._entityCount > 0) {
+                this.callLLM().catch(e => this.magi.postLog(`LLM ERR: ${e.message}`, 'critical'));
+            }
+
+        } catch (e: any) {
+            this.magi.postLog(`Detection Parse Error: ${e.message}`, 'critical');
         }
     }
 }

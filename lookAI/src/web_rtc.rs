@@ -20,7 +20,7 @@ pub struct WebRtc {
     frame_rx: Mutex<mpsc::Receiver<Vec<u8>>>,
     pub frame_tx: mpsc::Sender<Vec<u8>>,
     result_tx: mpsc::Sender<String>,
-    result_rx: Mutex<mpsc::Receiver<String>>,
+    pub result_rx: Mutex<mpsc::Receiver<String>>,
     /// SPS/PPSを含む初期化パケットを受信済みか
     initialized: std::sync::atomic::AtomicBool,
 }

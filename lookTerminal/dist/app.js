@@ -77,7 +77,8 @@ async function i(e) {
                           "thought": { "analysis": "string", "plan": "string" },
                           "tasks": { "now": "string", "next": "string" },
                           "js": "string",
-                          "text": "string"
+                          "text": "string",
+                          "warnings": ["string"]
                         }
                         背景知識: ${t}`
 				}, {
@@ -178,11 +179,71 @@ var c = class {
 	}
 	getMetaInterface() {
 		return {
-			notification: { show: (e, t) => {
-				this.magi.postLog(`LLM_MSG: ${e}`, "ok");
-			} },
-			system: { reboot_detection: () => this.magi.postLog("Detection Rebooting...", "warn") }
+			notification: {
+				_type: "namespace",
+				show: {
+					_type: "function",
+					args: [{
+						name: "msg",
+						type: "string",
+						maxLength: 200
+					}, {
+						name: "color",
+						type: "string",
+						enum: [
+							"green",
+							"red",
+							"orange",
+							"white"
+						]
+					}],
+					impl: (e, t) => {
+						this.magi.postLog(`LLM_MSG: ${e}`, "ok");
+					}
+				}
+			},
+			system: {
+				_type: "namespace",
+				reboot_detection: {
+					_type: "function",
+					args: [],
+					impl: () => {
+						this.magi.postLog("Detection Rebooting...", "warn"), this.magi.setNodeStatus("detection", "warn", "REBOOTING...");
+					}
+				},
+				set_sync_target: {
+					_type: "function",
+					args: [{
+						name: "value",
+						type: "number",
+						min: 0,
+						max: 100
+					}],
+					impl: (e) => {
+						this._lastConfidenceSync = e;
+					}
+				}
+			}
 		};
+	}
+	inspectLLMCode(e, t) {
+		let n = [], r = /META\.(\w+)\.(\w+)\s*\(/g, i;
+		for (; (i = r.exec(e)) !== null;) {
+			let [, e, r] = i, a = t[e];
+			if (!a) {
+				n.push(`UNKNOWN_NAMESPACE: META.${e}`);
+				continue;
+			}
+			let o = a[r];
+			(!o || o._type !== "function") && n.push(`UNKNOWN_FUNCTION: META.${e}.${r}`);
+		}
+		/\b(document|window|fetch|XMLHttpRequest|eval|Function)\b/.test(e) && n.push("FORBIDDEN_GLOBAL: direct DOM/fetch access not allowed");
+		let a = /META.system.set_sync_target\s*\(\s*(-?[\d.]+)\s*\)/g, o;
+		for (; (o = a.exec(e)) !== null;) {
+			let e = parseFloat(o[1]);
+			(e < 0 || e > 100) && n.push(`OUT_OF_RANGE: set_sync_target(${e}) must be 0-100`);
+		}
+		return n;
 	}
 	async callLLM(e = 0) {
 		if (e > 2) {
@@ -264,14 +325,28 @@ var c = class {
 	};
 	_entityCount = 0;
 	_handleData(e) {
-		console.log("Received Data:", e);
 		try {
-			let t = e.payload.replace("DETECTED:", ""), { label: n, entity_id: r, bbox: i, confidence: a } = JSON.parse(t), o = this.objectManager.findGameObject(r);
-			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n}`, "ok"), this.magi.setNodeStatus("detection", "active", "YOLO: RUNNING\nENTITIES: " + this._entityCount));
+			if (e.type !== "detection") return;
+			let t = e.payload.replace(/^DETECTED:/, ""), { label: n, entity_id: r, bbox: i, confidence: a } = JSON.parse(t), o = this.objectManager.findGameObject(r);
+			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n} [${r}]`, "ok"), this.magi.setNodeStatus("detection", "active", `YOLO: RUNNING\nENTITIES: ${this._entityCount}`));
 			let s = i[0] / 640 * 2 - 1, c = -(i[1] / 480 * 2 - 1), l = o.getComponent("Transform");
-			l?.position && (l.position.x = s, l.position.y = c), a !== void 0 && (this._lastConfidenceSync = 40 + a * 60);
-		} catch {
-			this.magi.postLog("Detection Parse Error", "critical");
+			if (l?.position && (l.position.x = s, l.position.y = c, l.position.z = -2), this.magi.renderDetection(n, r, [
+				i[0] / 640,
+				i[1] / 480,
+				i[2] / 640,
+				i[3] / 480
+			]), a !== void 0) {
+				this._lastConfidenceSync = 40 + a * 60;
+				let e = a > .5 ? "agree" : "reject", t = a > .7 ? "agree" : "reject";
+				this.magi.setMagiVerdicts([
+					"agree",
+					e,
+					t
+				]), a < .5 && this.magi.postLog(`MISMATCH: ${n} DIFF=${(1 - a).toFixed(2)}`, "warn");
+			}
+			this._entityCount % 5 == 0 && this._entityCount > 0 && this.callLLM().catch((e) => this.magi.postLog(`LLM ERR: ${e.message}`, "critical"));
+		} catch (e) {
+			this.magi.postLog(`Detection Parse Error: ${e.message}`, "critical");
 		}
 	}
 };
