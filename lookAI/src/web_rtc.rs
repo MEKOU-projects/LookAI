@@ -16,7 +16,7 @@ pub struct SignalMessage {
     pub device_type: Option<String>,
 }
 
-pub struct WebRtc {
+pub struct WS {
     frame_rx: Mutex<mpsc::Receiver<Vec<u8>>>,
     pub frame_tx: mpsc::Sender<Vec<u8>>,
     result_tx: mpsc::Sender<String>,
@@ -25,7 +25,7 @@ pub struct WebRtc {
     initialized: std::sync::atomic::AtomicBool,
 }
 
-impl WebRtc {
+impl WS {
     pub fn new() -> Self {
         let (frame_tx, frame_rx) = mpsc::channel(64); // バッファ拡大
         let (result_tx, result_rx) = mpsc::channel(32);

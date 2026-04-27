@@ -10,18 +10,18 @@ mod slam;
 mod signal_server;
 mod video_decoder;
 
-use crate::web_rtc::WebRtc;
+use crate::web_rtc::WS;
 use crate::slam::Slam;
 use crate::signal_server::SignalServer;
 //use crate::video_decoder::VideoFrameReconstructor;
 
 struct LookAI {
-    rtc: Arc<WebRtc>,
+    rtc: Arc<WS>,
     slam: Slam,
 }
 
 impl LookAI {
-    async fn new(rtc: Arc<WebRtc>) -> Self {
+    async fn new(rtc: Arc<WS>) -> Self {
         Self {
             rtc,
             slam: Slam::new(),
@@ -54,7 +54,7 @@ impl LookAI {
         let py_stdout = child.stdout.take().expect("Failed to open stdout");
 
         // YOLO結果の受信 → RTCでスマホへ送り返す
-        let rtc_for_result: Arc<WebRtc> = Arc::clone(&self.rtc);
+        let rtc_for_result: Arc<WS> = Arc::clone(&self.rtc);
         tokio::spawn(async move {
             let mut reader = BufReader::new(py_stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
@@ -101,7 +101,7 @@ impl LookAI {
 async fn main() {
     println!("🛰️ Starting LookAI MEKOU Engine...");
 
-    let look_ai_core = Arc::new(WebRtc::new());
+    let look_ai_core = Arc::new(WS::new());
 
     let server_core = Arc::clone(&look_ai_core);
     tokio::spawn(async move {

@@ -152,7 +152,7 @@ var c = class {
 	} catch (e) {
 		throw console.error("❌ [initGame] CRASH:", e), e;
 	}
-}, u = class {
+}, u = class t {
 	objectManager;
 	webRTC = null;
 	magi;
@@ -162,12 +162,54 @@ var c = class {
 	_lastFeedback = "Initial State";
 	_lastSendTime = 0;
 	_isStreamAttached = !1;
+	_llmOnline = !1;
+	_ragOnline = !1;
 	constructor(t) {
-		this.objectManager = t, this.magi = new e(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "READY");
-		let n = document.getElementById("stream-start-btn");
-		n && n.addEventListener("click", () => this._startCamera()), this._initWebRTC(), setTimeout(() => {
-			this.magi.postLog("AUTO START: Initializing camera...", "warn"), this._startCamera();
-		}, 2e3);
+		this.objectManager = t, this.magi = new e(), this.magi.setSyncRatio(0), this.magi.setObjective("WAITING FOR COMMAND", 0), this.magi.setNodeStatus("object-mgr", "active", "READY"), this._initWebRTC(), this._startAutonomousLoop();
+	}
+	_llmBusy = !1;
+	_llmCycleCount = 0;
+	LLM_IDLE_INTERVAL_MS = 8e3;
+	LLM_ECS_INTERVAL_MS = 4e3;
+	_startAutonomousLoop() {
+		this._checkServerHealth(), setInterval(() => this._checkServerHealth(), 3e4);
+		let e = async () => {
+			if (this._llmBusy) return;
+			let t = this.objectManager.rootObjects.some((e) => e.tag !== "system" && e.confidence > .1), n = t ? this.LLM_ECS_INTERVAL_MS : this.LLM_IDLE_INTERVAL_MS;
+			if (await new Promise((e) => setTimeout(e, n)), this._llmBusy) {
+				e();
+				return;
+			}
+			this._llmBusy = !0, this._llmCycleCount++;
+			try {
+				await this.callLLM(0, !t), console.log("no ECS so, talk idle");
+			} finally {
+				this._llmBusy = !1, e();
+			}
+		};
+		e();
+	}
+	async _checkServerHealth() {
+		let e = !1;
+		try {
+			e = (await fetch("http://localhost:6333/collections", { signal: AbortSignal.timeout(2e3) })).ok;
+		} catch {
+			e = !1;
+		}
+		e !== this._ragOnline && (this._ragOnline = e, e ? this.magi.postLog("RAG: Qdrant ONLINE", "ok") : this.magi.postLog("RAG: Qdrant OFFLINE — memory disabled", "warn"));
+		let t = !1;
+		try {
+			t = (await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2e3) })).ok;
+		} catch {
+			t = !1;
+		}
+		t !== this._llmOnline && (this._llmOnline = t, t ? (this.magi.postLog("LLM: Ollama ONLINE — autonomous mode activated", "ok"), this.magi.showPopup("MEKOU AUTONOMOUS MODE", "Ollama LLM is now online.\n\nMEKOU will operate as an autonomous AI agent.\nIDLE cycles will generate independent thought.\n\n— SYSTEM HANDOFF COMPLETE —", [{
+			label: "ACKNOWLEDGE",
+			cls: "ok",
+			cb: () => {}
+		}])) : this.magi.postLog("LLM: Ollama OFFLINE — autonomous mode suspended", "warn"));
+		let n = e ? "ONLINE" : "OFFLINE", r = t ? "ONLINE" : "OFFLINE", i = !e && !t ? "dim" : t ? "active" : "warn";
+		this.magi.setNodeStatus("llm", i, `OLLAMA: ${r}\nRAG: ${n}`);
 	}
 	async _initWebRTC() {
 		let e = this.objectManager.createGameObject("network_system");
@@ -245,26 +287,34 @@ var c = class {
 		}
 		return n;
 	}
-	async callLLM(e = 0) {
+	async callLLM(e = 0, t = !1) {
 		if (e > 2) {
 			this.magi.postLog("META: MAX RETRIES. ABORTED.", "critical");
 			return;
 		}
-		this.magi.setObjective(void 0, void 0, 2, "active"), console.log("MEKOU is thinking...");
-		let t = {
-			ECS: this.objectManager.rootObjects.map((e) => ({ id: e.id || e.name || "entity" })),
+		this.magi.setObjective(void 0, void 0, 2, "active");
+		let n = this.objectManager.rootObjects.map((e) => ({
+			id: e.id || e.name || "entity",
+			confidence: e.confidence ?? 1,
+			distance: e.distanceEstimate ?? null,
+			isVisible: e.isVisible ?? !1
+		})), r = t ? "No ECS data currently available. You may think freely, speculate about the environment, review past memory, or express observations. Keep it brief." : "", a = {
+			ECS: n,
 			META: {
 				lastError: this._lastError,
 				feedback: this._lastFeedback,
-				interface: Object.keys(this.getMetaInterface())
+				interface: Object.keys(this.getMetaInterface()),
+				cycle: this._llmCycleCount,
+				idleMode: t,
+				hint: r
 			}
-		}, n = await i(JSON.stringify(t));
+		}, o = await i(JSON.stringify(a));
 		try {
-			let t = JSON.parse(n);
+			let t = JSON.parse(o);
 			if (!t.js) return;
-			let r = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocol");
-			if (r) {
-				let n = JSON.stringify(this.getMetaInterface()), i = r.inspection(t.js, n);
+			let n = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocol");
+			if (n) {
+				let r = JSON.stringify(this.getMetaInterface()), i = n.inspection(t.js, r);
 				if (i.length === 0) this.magi.setObjective(t.tasks?.now || "RELEASED", 100, 4, "done"), this.executeJS(t.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
 				else {
 					let t = `Violation detected: ${i.join(", ")}`;
@@ -277,9 +327,14 @@ var c = class {
 	}
 	executeJS(e) {
 		try {
-			Function("META", e)(this.getMetaInterface()), this._lastError = "None", this._lastFeedback = "Execution Success.";
+			let t = this.getMetaInterface(), n = {};
+			for (let [e, r] of Object.entries(t)) {
+				n[e] = {};
+				for (let [t, i] of Object.entries(r)) t !== "_type" && (n[e][t] = i.impl);
+			}
+			Function("META", e)(n), this._lastError = "None", this._lastFeedback = "Execution Success.", this.magi.postLog("META: JS executed OK", "ok");
 		} catch (e) {
-			this._lastError = e.message, this._lastFeedback = `Error: ${e.message}`, this.magi.postLog(`RUNTIME ERR: ${e.message}`, "critical");
+			this._lastError = e.message, this._lastFeedback = `Runtime Error: ${e.message}`, this.magi.postLog(`RUNTIME ERR: ${e.message}`, "critical");
 		}
 	}
 	async _startCamera() {
@@ -290,20 +345,81 @@ var c = class {
 			this.magi.postLog(`Camera ERROR: ${e.message}`, "critical");
 		}
 	}
-	_sendFrameAsJpeg() {
-		if (!this.webRTC || !this.webRTC.isConnected()) return;
+	_prevFrameData = null;
+	_frameId = 0;
+	_offCanvas = null;
+	_offCtx = null;
+	static FRAME_W = 320;
+	static FRAME_H = 240;
+	static BLOCK_SIZE = 8;
+	static I_INTERVAL = 60;
+	static DIFF_THRESHOLD = 18;
+	static MAX_SEARCH = 8;
+	_getOffCanvas() {
+		return this._offCanvas || (this._offCanvas = document.createElement("canvas"), this._offCanvas.width = t.FRAME_W, this._offCanvas.height = t.FRAME_H, this._offCtx = this._offCanvas.getContext("2d", { willReadFrequently: !0 })), this._offCtx ? {
+			canvas: this._offCanvas,
+			ctx: this._offCtx
+		} : null;
+	}
+	_sendFrame() {
+		if (!this.webRTC?.isConnected()) return;
 		let e = document.querySelector("video");
-		if (!e || e.paused || e.ended) return;
-		let t = document.createElement("canvas");
-		t.width = 320, t.height = 240;
-		let n = t.getContext("2d");
+		if (!e || e.paused || e.ended || e.videoWidth === 0) return;
+		let n = this._getOffCanvas();
 		if (!n) return;
-		n.drawImage(e, 0, 0, t.width, t.height);
-		let r = t.toDataURL("image/jpeg", .7);
-		this.webRTC.sendData(JSON.stringify({
-			type: "frame",
-			payload: r
-		}));
+		let { canvas: r, ctx: i } = n, a = t.FRAME_W, o = t.FRAME_H, s = t.BLOCK_SIZE;
+		i.drawImage(e, 0, 0, a, o);
+		let c = i.getImageData(0, 0, a, o);
+		if (this._frameId++, this._frameId % t.I_INTERVAL === 1 || !this._prevFrameData) {
+			this._prevFrameData = c, r.toBlob((e) => {
+				!e || !this.webRTC?.isConnected() || e.arrayBuffer().then((e) => {
+					let t = /* @__PURE__ */ new ArrayBuffer(12), n = new DataView(t);
+					n.setUint8(0, 77), n.setUint8(1, 75), n.setUint8(2, 73), n.setUint8(3, 70), n.setUint32(4, this._frameId, !1), n.setUint16(8, a, !1), n.setUint16(10, o, !1);
+					let r = new Uint8Array(t.byteLength + e.byteLength);
+					r.set(new Uint8Array(t), 0), r.set(new Uint8Array(e), t.byteLength), this.webRTC.sendData(r.buffer);
+				});
+			}, "image/jpeg", .75);
+			return;
+		}
+		let l = this._prevFrameData, u = c.data, d = l.data, f = a / s, p = o / s, m = [], h = 0;
+		for (let e = 0; e < p; e++) for (let n = 0; n < f; n++) {
+			let r = 0;
+			for (let t = 0; t < s; t++) for (let i = 0; i < s; i++) {
+				let o = n * s + i, c = ((e * s + t) * a + o) * 4;
+				r += Math.abs(u[c] - d[c]) + Math.abs(u[c + 1] - d[c + 1]) + Math.abs(u[c + 2] - d[c + 2]);
+			}
+			if (r / (s * s * 3) <= t.DIFF_THRESHOLD) continue;
+			h++;
+			let i = t.MAX_SEARCH, c = 0, l = 0, f = Infinity;
+			for (let t = -i; t <= i; t += 2) for (let r = -i; r <= i; r += 2) {
+				let i = 0;
+				for (let c = 0; c < s; c += 2) for (let l = 0; l < s; l += 2) {
+					let f = n * s + l, p = e * s + c, m = Math.max(0, Math.min(a - 1, f + r)), h = Math.max(0, Math.min(o - 1, p + t)), g = (p * a + f) * 4, _ = (h * a + m) * 4;
+					i += Math.abs(u[g] - d[_]) + Math.abs(u[g + 1] - d[_ + 1]) + Math.abs(u[g + 2] - d[_ + 2]);
+				}
+				i < f && (f = i, c = r, l = t);
+			}
+			let p = 0, g = 0, _ = 0;
+			for (let t = 0; t < s; t++) for (let r = 0; r < s; r++) {
+				let i = n * s + r, o = ((e * s + t) * a + i) * 4;
+				p += u[o], g += u[o + 1], _ += u[o + 2];
+			}
+			let v = s * s;
+			p = Math.round(p / v), g = Math.round(g / v), _ = Math.round(_ / v);
+			let y = new Uint8Array(7);
+			y[0] = n, y[1] = e, y[2] = c + 128, y[3] = l + 128, y[4] = p, y[5] = g, y[6] = _, m.push(y);
+		}
+		if (m.length < 5) {
+			this._prevFrameData = c;
+			return;
+		}
+		let g = /* @__PURE__ */ new ArrayBuffer(10), _ = new DataView(g);
+		_.setUint8(0, 77), _.setUint8(1, 75), _.setUint8(2, 80), _.setUint8(3, 70), _.setUint32(4, this._frameId, !1), _.setUint16(8, m.length, !1);
+		let v = 10 + m.length * 7, y = new Uint8Array(v);
+		y.set(new Uint8Array(g), 0);
+		let b = 10;
+		for (let e of m) y.set(e, b), b += 7;
+		this.webRTC.sendData(y.buffer), this._prevFrameData = c;
 	}
 	update = (e) => {
 		let t = this._lastConfidenceSync ?? 44.1;
@@ -313,7 +429,7 @@ var c = class {
 			e && (this.webRTC.addStream(e), this._isStreamAttached = !0);
 		}
 		let n = Date.now();
-		if (n - this._lastSendTime > 100 && (this._sendFrameAsJpeg(), this._lastSendTime = n), this.webRTC.isConnected()) {
+		if (n - this._lastSendTime > 100 && (this._sendFrame(), this._lastSendTime = n), this.webRTC.isConnected()) {
 			let e;
 			for (; (e = this.webRTC.receiveData()) !== null;) this._handleData(e);
 		}
@@ -326,9 +442,12 @@ var c = class {
 	_entityCount = 0;
 	_handleData(e) {
 		try {
-			if (e.type !== "detection") return;
-			let t = e.payload.replace(/^DETECTED:/, ""), { label: n, entity_id: r, bbox: i, confidence: a } = JSON.parse(t), o = this.objectManager.findGameObject(r);
-			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n} [${r}]`, "ok"), this.magi.setNodeStatus("detection", "active", `YOLO: RUNNING\nENTITIES: ${this._entityCount}`));
+			let t;
+			if (e.type === "detection" && e.payload) t = JSON.parse(e.payload.replace(/^DETECTED:/, ""));
+			else if (e.entity_id) t = e;
+			else return;
+			let { label: n, entity_id: r, bbox: i, confidence: a } = t, o = this.objectManager.findGameObject(r);
+			o || (o = this.objectManager.createGameObject(r), this._entityCount++, this.magi.postLog(`New Entity: ${n} [${r}]`, "ok")), o.confidence = Math.min(1, (o.confidence ?? 1) * .7 + a * .3), o.lastSeenAt = Date.now(), o.isVisible = !0, o.distanceEstimate = i[2] * i[3] > 0 ? Math.sqrt(320 * 240 / (i[2] * i[3])) * .8 : Infinity, this.magi.setNodeStatus("detection", "active", `YOLO: RUNNING\nENTITIES: ${this._entityCount}`);
 			let s = i[0] / 640 * 2 - 1, c = -(i[1] / 480 * 2 - 1), l = o.getComponent("Transform");
 			if (l?.position && (l.position.x = s, l.position.y = c, l.position.z = -2), this.magi.renderDetection(n, r, [
 				i[0] / 640,

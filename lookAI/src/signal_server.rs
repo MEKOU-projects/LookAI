@@ -5,16 +5,16 @@ use std::sync::Arc;
 use futures_util::{StreamExt, SinkExt};
 use dashmap::DashMap;
 use tokio::sync::mpsc;
-use crate::web_rtc::WebRtc;
+use crate::web_rtc::WS;
 
 pub struct SignalServer {
-    webrtc: Arc<WebRtc>,
+    webrtc: Arc<WS>,
     // デバイスIDと、そのソケットへメッセージを送るための送信機を紐付け
     clients: DashMap<String, mpsc::UnboundedSender<Message>>,
 }
 
 impl SignalServer {
-    pub fn new(webrtc: Arc<WebRtc>) -> Self {
+    pub fn new(webrtc: Arc<WS>) -> Self {
         Self { 
             webrtc,
             clients: DashMap::new(),
@@ -89,10 +89,45 @@ impl SignalServer {
         // 【上り】ブラウザ / アプリから届いたメッセージを処理
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
-                // JPEG バイナリ → YOLO キューへ
+                // MKIF/MKPF ヘッダーを判別して正しくルーティング
                 Message::Binary(bin) => {
-                    if let Err(e) = self.webrtc.frame_tx.send(bin.to_vec()).await {
-                        eprintln!("❌ frame_tx send failed: {:?}", e);
+                    let magic = if bin.len() >= 4 { &bin[..4] } else { eprintln!("\u{26a0}\u{fe0f} binary too short: {} bytes", bin.len()); &bin[..0] };
+                    match magic {
+                        // MKIF: I-frame  [M,K,I,F] + frame_id(4) + w(2) + h(2) + JPEG
+                        b"MKIF" if bin.len() > 12 => {
+                            let frame_id = u32::from_be_bytes(bin[4..8].try_into().unwrap_or([0;4]));
+                            let jpeg = &bin[12..];
+                            if jpeg.len() > 2 && jpeg[0] == 0xFF && jpeg[1] == 0xD8 {
+                                println!("📸 MKIF #{} — {} bytes JPEG", frame_id, jpeg.len());
+                                if let Err(e) = self.webrtc.frame_tx.send(jpeg.to_vec()).await {
+                                    eprintln!("❌ frame_tx(MKIF): {:?}", e);
+                                }
+                            } else {
+                                eprintln!("⚠️ MKIF payload is not JPEG");
+                            }
+                        }
+                        // MKPF: P-frame  [M,K,P,F] + frame_id(4) + block_count(2) + blocks[]
+                        // PフレームはYOLOには渡さない——SLAM用に将来活用。
+                        // 現時点ではログのみ。
+                        b"MKPF" if bin.len() >= 10 => {
+                            let frame_id    = u32::from_be_bytes(bin[4..8].try_into().unwrap_or([0;4]));
+                            let block_count = u16::from_be_bytes(bin[8..10].try_into().unwrap_or([0;2]));
+                            // TODO: SLAMに動きベクトルを渡す実装
+                            // 現在はデバッグログのみ
+                            if frame_id % 60 == 0 {
+                                println!("📊 MKPF #{} — {} blocks", frame_id, block_count);
+                            }
+                        }
+                        // ヘッダーなしの旧形式JPEG (遷移期いったんのフォールバック)
+                        _ if bin.len() > 2 && bin[0] == 0xFF && bin[1] == 0xD8 => {
+                            println!("📆 Legacy JPEG — {} bytes (no MKIF header)", bin.len());
+                            if let Err(e) = self.webrtc.frame_tx.send(bin.to_vec()).await {
+                                eprintln!("❌ frame_tx(legacy): {:?}", e);
+                            }
+                        }
+                        _ => {
+                            eprintln!("❓ Unknown binary magic: {:02X?} ({} bytes)", &bin[..4.min(bin.len())], bin.len());
+                        }
                     }
                 },
                 // JSON テキスト → register / command
