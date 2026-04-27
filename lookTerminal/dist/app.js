@@ -57,11 +57,24 @@ var e = class {
 	}
 	boot(e) {}
 }, t = "http://localhost:6333", n = "http://localhost:11434", r = "mekou_exp";
-async function i(e) {
+async function i(e, t = {}) {
+	let { ragOnline: r = !0, llmOnline: i = !0 } = t;
+	if (!i) return JSON.stringify({
+		thought: {
+			analysis: "LLM OFFLINE",
+			plan: "standby"
+		},
+		tasks: {
+			now: "WAITING FOR LLM",
+			next: "retry on next cycle"
+		},
+		js: "",
+		text: "LLM is offline. Standing by.",
+		warnings: ["ollama unreachable"]
+	});
 	try {
-		o(e).catch((e) => console.error("Qdrant Save Error:", e));
-		let t = await s(e);
-		return (await (await fetch(`${n}/api/chat`, {
+		let t = "";
+		return r && (o(e).catch((e) => console.warn("[RAG] Save skipped:", e.message)), t = await s(e)), (await (await fetch(`${n}/api/chat`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -89,7 +102,7 @@ async function i(e) {
 			})
 		})).json()).message.content;
 	} catch (e) {
-		throw console.error("MEKOU Core Error:", e.message), e;
+		throw console.warn("[LLMSystem] processMessage failed:", e.message), e;
 	}
 }
 async function a(e) {
@@ -292,6 +305,10 @@ var c = class {
 			this.magi.postLog("META: MAX RETRIES. ABORTED.", "critical");
 			return;
 		}
+		if (!this._llmOnline) {
+			t && this.magi.postLog("MEKOU: LLM offline — idle cycle skipped", "warn");
+			return;
+		}
 		this.magi.setObjective(void 0, void 0, 2, "active");
 		let n = this.objectManager.rootObjects.map((e) => ({
 			id: e.id || e.name || "entity",
@@ -308,19 +325,22 @@ var c = class {
 				idleMode: t,
 				hint: r
 			}
-		}, o = await i(JSON.stringify(a));
+		}, o = await i(JSON.stringify(a), {
+			ragOnline: this._ragOnline,
+			llmOnline: this._llmOnline
+		});
 		try {
-			let t = JSON.parse(o);
-			if (!t.js) return;
-			let n = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocol");
-			if (n) {
-				let r = JSON.stringify(this.getMetaInterface()), i = n.inspection(t.js, r);
-				if (i.length === 0) this.magi.setObjective(t.tasks?.now || "RELEASED", 100, 4, "done"), this.executeJS(t.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
+			let n = JSON.parse(o);
+			if (t && n.text && this.magi.postLog(`MEKOU: ${n.text}`, "ok"), !n.js) return;
+			let r = this.objectManager.findGameObject("network_system")?.getComponent("MetaProtocol");
+			if (r) {
+				let t = JSON.stringify(this.getMetaInterface()), i = r.inspection(n.js, t);
+				if (i.length === 0) this.magi.setObjective(n.tasks?.now || "RELEASED", 100, 4, "done"), this.executeJS(n.js), this.magi.postLog("META-PROTOCOL: PASSED. RELEASED.", "ok");
 				else {
 					let t = `Violation detected: ${i.join(", ")}`;
 					this.magi.setObjective(void 0, void 0, 3, "err"), this.magi.postLog(`META-PROTOCOL: REJECTED. ${i[0]}`, "warn"), this._lastError = t, this._lastFeedback = "Your previous JS code violates system constraints.", await this.callLLM(e + 1);
 				}
-			} else this.executeJS(t.js);
+			} else this.executeJS(n.js);
 		} catch {
 			this.magi.postLog("JSON Parse Error in LLM Output", "critical");
 		}
@@ -337,10 +357,11 @@ var c = class {
 			this._lastError = e.message, this._lastFeedback = `Runtime Error: ${e.message}`, this.magi.postLog(`RUNTIME ERR: ${e.message}`, "critical");
 		}
 	}
+	_hiddenVideo = null;
 	async _startCamera() {
 		try {
 			let e = await this.objectManager.createGameObject("camera").addComponent("Camera").getStream();
-			e && (this.magi.attachCameraStream(e), this.magi.setStreamingState(!0), this.magi.registerDevice("cam-mobile", "MOBILE CAM", "STREAMING", "active"), this.magi.postLog("Camera: active", "ok"), this.magi.setObjective(void 0, void 0, 1, "done"));
+			e && (this._hiddenVideo || (this._hiddenVideo = document.createElement("video"), this._hiddenVideo.setAttribute("playsinline", ""), this._hiddenVideo.muted = !0, this._hiddenVideo.style.position = "absolute", this._hiddenVideo.style.visibility = "hidden", this._hiddenVideo.style.pointerEvents = "none", this._hiddenVideo.style.width = "1px", this._hiddenVideo.style.height = "1px", document.body.appendChild(this._hiddenVideo)), this._hiddenVideo.srcObject = e, await this._hiddenVideo.play().catch(() => {}), this.magi.setStreamingState(!0), this.magi.setNodeStatus("camera", "active", "STREAM: ACTIVE\n→ lookAI SENDING"), this.magi.registerDevice("cam-mobile", "MOBILE CAM", "STREAMING → lookAI", "active"), this.magi.postLog("Camera: active — streaming to lookAI", "ok"), this.magi.setObjective(void 0, void 0, 1, "done"));
 		} catch (e) {
 			this.magi.postLog(`Camera ERROR: ${e.message}`, "critical");
 		}
@@ -363,7 +384,7 @@ var c = class {
 	}
 	_sendFrame() {
 		if (!this.webRTC?.isConnected()) return;
-		let e = document.querySelector("video");
+		let e = this._hiddenVideo;
 		if (!e || e.paused || e.ended || e.videoWidth === 0) return;
 		let n = this._getOffCanvas();
 		if (!n) return;
@@ -424,10 +445,7 @@ var c = class {
 	update = (e) => {
 		let t = this._lastConfidenceSync ?? 44.1;
 		if (this.magi.currentSync += (t - this.magi.currentSync) * .1, this.magi.setSyncRatio(this.magi.currentSync + (Math.random() - .5) * .5), !this.webRTC) return;
-		if (!this._isStreamAttached && this.webRTC.isConnected()) {
-			let e = (this.objectManager.findGameObject("camera")?.getComponent("Camera"))?.getStream();
-			e && (this.webRTC.addStream(e), this._isStreamAttached = !0);
-		}
+		!this._isStreamAttached && this.webRTC.isConnected() && (this._isStreamAttached = !0, this._startCamera());
 		let n = Date.now();
 		if (n - this._lastSendTime > 100 && (this._sendFrame(), this._lastSendTime = n), this.webRTC.isConnected()) {
 			let e;

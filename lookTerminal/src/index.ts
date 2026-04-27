@@ -280,6 +280,12 @@ export class WebTerminal {
             return;
         }
 
+        // LLM が落ちていたら処理しない
+        if (!this._llmOnline) {
+            if (idleMode) this.magi.postLog('MEKOU: LLM offline — idle cycle skipped', 'warn');
+            return;
+        }
+
         this.magi.setObjective(undefined, undefined, 2, 'active');
         const ecsSnapshot = this.objectManager.rootObjects.map(o => ({ 
             id: (o as any).id || (o as any).name || "entity",
@@ -305,10 +311,19 @@ export class WebTerminal {
             }
         };
 
-        const reply = await processMessage(JSON.stringify(promptBase));
+        const reply = await processMessage(JSON.stringify(promptBase), {
+            ragOnline: this._ragOnline,
+            llmOnline: this._llmOnline,
+        });
 
         try {
             const res = JSON.parse(reply);
+
+            // ── アイドルモード: LLM の発言をコンソールに表示 ──────────────────
+            if (idleMode && res.text) {
+                this.magi.postLog(`MEKOU: ${res.text}`, 'ok');
+            }
+
             if (!res.js) return;
 
             // 1. MetaProtocolMain コンポーネントを network_system 等から取得
@@ -373,17 +388,36 @@ export class WebTerminal {
         }
     }
 
+    // カメラの非表示ビデオ要素 (フレーム転送用)
+    private _hiddenVideo: HTMLVideoElement | null = null;
+
     private async _startCamera(): Promise<void> {
         try {
             const camObj = this.objectManager.createGameObject('camera');
             const camera = camObj.addComponent<Camera>('Camera');
             const stream = await camera.getStream();
             if (stream) {
-                this.magi.attachCameraStream(stream);
+                // 隠しビデオ要素を作成してカメラストリームをアタッチ
+                // (カメラプレビューは表示しないがフレーム転送に使う)
+                if (!this._hiddenVideo) {
+                    this._hiddenVideo = document.createElement('video');
+                    this._hiddenVideo.setAttribute('playsinline', '');
+                    this._hiddenVideo.muted = true;
+                    this._hiddenVideo.style.position = 'absolute';
+                    this._hiddenVideo.style.visibility = 'hidden';
+                    this._hiddenVideo.style.pointerEvents = 'none';
+                    this._hiddenVideo.style.width = '1px';
+                    this._hiddenVideo.style.height = '1px';
+                    document.body.appendChild(this._hiddenVideo);
+                }
+                this._hiddenVideo.srcObject = stream as MediaStream;
+                await this._hiddenVideo.play().catch(() => {});
+
                 this.magi.setStreamingState(true);
-                this.magi.registerDevice('cam-mobile', 'MOBILE CAM', 'STREAMING', 'active');
-                this.magi.postLog('Camera: active', 'ok');
-                this.magi.setObjective(undefined, undefined, 1, 'done'); // ECS step done
+                this.magi.setNodeStatus('camera', 'active', 'STREAM: ACTIVE\n→ lookAI SENDING');
+                this.magi.registerDevice('cam-mobile', 'MOBILE CAM', 'STREAMING → lookAI', 'active');
+                this.magi.postLog('Camera: active — streaming to lookAI', 'ok');
+                this.magi.setObjective(undefined, undefined, 1, 'done'); // IOT step done
             }
         } catch (e: any) {
             this.magi.postLog(`Camera ERROR: ${e.message}`, 'critical');
@@ -428,7 +462,8 @@ export class WebTerminal {
 
     private _sendFrame(): void {
         if (!this.webRTC?.isConnected()) return;
-        const video = document.querySelector('video') as HTMLVideoElement | null;
+        // 隠しビデオ要素を使用（カメラプレビューは表示しない）
+        const video = this._hiddenVideo;
         if (!video || video.paused || video.ended || video.videoWidth === 0) return;
 
         const o = this._getOffCanvas();
@@ -570,15 +605,10 @@ export class WebTerminal {
 
         if (!this.webRTC) return;
 
-        // 2. ストリームの自動アタッチ (初回のみ)
+        // 2. カメラ自動起動 (初回のみ)
         if (!this._isStreamAttached && this.webRTC.isConnected()) {
-            const camObj = this.objectManager.findGameObject('camera');
-            const camera = camObj?.getComponent<Camera>('Camera');
-            const stream = camera?.getStream();
-            if (stream) {
-                this.webRTC.addStream(stream as MediaStream);
-                this._isStreamAttached = true;
-            }
+            this._isStreamAttached = true; // フラグを先に立て二重起動を防ぐ
+            this._startCamera();
         }
 
         // 3. フレーム転送 (100ms = 10FPS)

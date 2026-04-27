@@ -12,16 +12,38 @@ const QDRANT_URL = 'http://localhost:6333';
 const OLLAMA_URL = 'http://localhost:11434';
 const COLLECTION_NAME = "mekou_exp";
 
+export interface LLMOptions {
+    ragOnline?: boolean;
+    llmOnline?: boolean;
+}
+
 /**
  * ブラウザから直接 Ollama / Qdrant を叩く
+ * ragOnline / llmOnline フラグが false の場合はフェッチをスキップする
  */
-export async function processMessage(text: string): Promise<string> {
-    try {
-        // 1. 記憶の保存 (Fire and forget)
-        saveToQdrant(text).catch(e => console.error("Qdrant Save Error:", e));
+export async function processMessage(text: string, opts: LLMOptions = {}): Promise<string> {
+    const { ragOnline = true, llmOnline = true } = opts;
 
-        // 2. コンテキスト検索
-        const relevantContext = await searchQdrant(text);
+    // LLM が落ちている場合はスタブを返す（ネットワークエラーを起こさない）
+    if (!llmOnline) {
+        return JSON.stringify({
+            thought: { analysis: "LLM OFFLINE", plan: "standby" },
+            tasks: { now: "WAITING FOR LLM", next: "retry on next cycle" },
+            js: "",
+            text: "LLM is offline. Standing by.",
+            warnings: ["ollama unreachable"]
+        });
+    }
+
+    try {
+        let relevantContext = "";
+
+        if (ragOnline) {
+            // 1. 記憶の保存 (Fire and forget)
+            saveToQdrant(text).catch(e => console.warn("[RAG] Save skipped:", e.message));
+            // 2. コンテキスト検索
+            relevantContext = await searchQdrant(text);
+        }
 
         // 3. Ollama 思考 (ブラウザ標準 fetch)
         const response = await fetch(`${OLLAMA_URL}/api/chat`, {
@@ -55,7 +77,7 @@ export async function processMessage(text: string): Promise<string> {
         const data = await response.json();
         return data.message.content;
     } catch (error: any) {
-        console.error("MEKOU Core Error:", error.message);
+        console.warn("[LLMSystem] processMessage failed:", error.message);
         throw error;
     }
 }

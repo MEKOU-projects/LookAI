@@ -151,7 +151,7 @@
             font-size: 7px;
             font-weight: 700;
             letter-spacing: 2px;
-            color: #555;
+            color: #aaaaaa;
         }
 
         .badge-thinking {
@@ -177,7 +177,7 @@
 
         .cycle-counter {
             font-size: 7px;
-            color: #333;
+            color: #aaaaaa;
             letter-spacing: 1px;
             margin-left: auto;
         }
@@ -278,7 +278,7 @@
         .cog-label {
             font-size: 7px;
             letter-spacing: 2px;
-            color: #444;
+            color: #aaaaaa;
             margin-bottom: 2px;
         }
 
@@ -773,7 +773,7 @@
                         0 OBJ</div>
                 </div>
                 <div class="ecs-world-list" id="ecs-world-list" style="flex:1;overflow-y:auto">
-                    <div style="font-size:8px;color:#2a2a2a;padding:4px;letter-spacing:1px">NO ENTITIES</div>
+                    <div style="font-size:8px;color:#aaaaaa;padding:4px;letter-spacing:1px">NO ENTITIES</div>
                 </div>
             </div>
 
@@ -805,7 +805,7 @@
             <div class="panel" style="flex-shrink:0">
                 <div class="panel-label" style="font-size:7px">DEVICES</div>
                 <div id="device-list"
-                    style="padding:4px;font-size:8px;color:#2a2a2a;letter-spacing:1px;max-height:80px;overflow-y:auto;scrollbar-width:none">
+                    style="padding:4px;font-size:8px;color:#aaaaaa;letter-spacing:1px;max-height:80px;overflow-y:auto;scrollbar-width:none">
                     NO DEVICES</div>
                 <div style="padding:3px 4px;border-top:1px solid #1a1a1a">
                     <button id="kill-all-btn"
@@ -938,7 +938,7 @@
                 const visible = entities.filter(e => e.confidence > 0.05);
                 if (cnt) cnt.textContent = visible.length + ' OBJ';
                 if (visible.length === 0) {
-                    list.innerHTML = '<div style="font-size:8px;color:#2a2a2a;padding:4px;letter-spacing:1px">NO ENTITIES</div>';
+                    list.innerHTML = '<div style="font-size:8px;color:#aaaaaa;padding:4px;letter-spacing:1px">NO ENTITIES</div>';
                     return;
                 }
                 list.innerHTML = visible.map(e => {
@@ -1105,7 +1105,7 @@
             const _devices = new Map();
             function renderDevices() {
                 const list = document.getElementById('device-list'); if (!list) return;
-                if (_devices.size === 0) { list.innerHTML = '<div style="font-size:8px;color:#2a2a2a;padding:4px;letter-spacing:1px">NO DEVICES</div>'; return; }
+                if (_devices.size === 0) { list.innerHTML = '<div style="font-size:8px;color:#aaaaaa;padding:4px;letter-spacing:1px">NO DEVICES</div>'; return; }
                 list.innerHTML = '';
                 _devices.forEach((dev, id) => {
                     const bc = dev.killed ? '#1a1a1a' : dev.statusClass === 'err' ? '#cc0000' : dev.statusClass === 'warn' ? '#ffcc00' : '#ff6600';
